@@ -71,89 +71,84 @@ cd threat-hunting-platform
 
 ### 2. Backend Setup
 
-First, set up the Python environment and install dependencies.
-
 ```bash
-# Create and activate a virtual environment
+cd backend
 python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+# source venv/bin/activate
 
-# Install Python packages
-pip install flask flask_cors flask_socketio sqlalchemy "werkzeug<3.0" yara-python pyyaml requests reportlab rich
+pip install -r requirements.txt
 ```
 
-Next, configure the admin password. The system requires an environment variable for the initial `admin` user's password.
+Configure the admin password (required for a known initial password):
 
 ```bash
-# For Linux/macOS
+# Linux/macOS
 export TH_ADMIN_PASSWORD="YourSecurePassword123!"
 
-# For Windows (Command Prompt)
-set TH_ADMIN_PASSWORD="YourSecurePassword123!"
+# Windows (Command Prompt)
+set TH_ADMIN_PASSWORD=YourSecurePassword123!
 
-# For Windows (PowerShell)
+# Windows (PowerShell)
 $env:TH_ADMIN_PASSWORD="YourSecurePassword123!"
 ```
 
-If this variable is not set, a random one-time password will be generated and printed to the console on the first run.
+If unset, a random one-time password is printed on first run.
 
 ### 3. Frontend Setup
 
-In a separate terminal, navigate to the `siem-ui` directory and install the Node.js dependencies.
-
 ```bash
-cd siem-ui
+cd frontend
 npm install
+# Optional: copy .env.example to .env and set REACT_APP_API_BASE_URL
 ```
 
 ## 🏃 Running the Application
 
-### Configure the API Endpoint
+Backend and frontend are separated under `backend/` and `frontend/`.
 
-Before running, ensure the frontend knows where to find the backend API. Open `siem-ui/src/api.js` and change the `API_BASE_URL` to point to your local backend server.
+Detailed feature docs:
 
-```javascript
-// siem-ui/src/api.js
-const API_BASE_URL = "http://127.0.0.1:5000";
-```
+- Backend → [`BACKEND.md`](./BACKEND.md)
+- Frontend → [`FRONTEND.md`](./FRONTEND.md)
 
 ### Start the Backend Server
 
-With your Python virtual environment activated, run the Flask web application from the project root.
-
 ```bash
-# Make sure you are in the root directory of the project
-# The backend will run on http://127.0.0.1:5000 by default
-python src/th/webapp.py
+cd backend
+venv\Scripts\activate
+set PYTHONPATH=src
+python -m th.webapp
+# → http://127.0.0.1:5000
 ```
 
-The database `threat_hunting.db` will be created in the root directory.
+SQLite DB `threat_hunting.db` is created under `backend/`.
 
 ### Start the Frontend UI
 
-In the terminal where you set up the frontend, run the React development server.
-
 ```bash
-# Make sure you are in the siem-ui/ directory
+cd frontend
 npm start
+# → http://localhost:3000
 ```
 
-The frontend will open automatically in your browser at `http://localhost:3000`.
+API base defaults to `http://127.0.0.1:5000` via `REACT_APP_API_BASE_URL`.
 
 ### Login
 
 - **URL**: `http://localhost:3000`
 - **Username**: `admin`
-- **Password**: The password you set in the `TH_ADMIN_PASSWORD` environment variable.
+- **Password**: value of `TH_ADMIN_PASSWORD`
 
 ## 📈 Populating with Data
 
-To fill the database with realistic sample data for demonstration purposes, you can run the data generation script.
-
-**Warning**: This will delete existing events and alerts from `threat_hunting.db`.
+**Warning**: This deletes existing events and alerts from `backend/threat_hunting.db`.
 
 ```bash
-# Make sure your venv is active and you are in the project root
+cd backend
+venv\Scripts\activate
 python generate_mass_data.py
 ```
 
@@ -181,28 +176,27 @@ API keys can be created and managed in the Admin panel.
 ## 📁 Project Structure
 
 ```
-/
-├── data/
-│   └── logs/             # Sample log files for ingestion
-├── hunting_rules.yml     # Main detection rules
-├── siem-ui/              # React frontend application
-│   ├── public/
-│   └── src/
-├── src/
-│   └── th/               # Core Python backend source
-│       ├── rules/        # YARA rules
-│       ├── anomaly.py    # Anomaly detection logic
-│       ├── db.py         # SQLAlchemy models and DB setup
-│       ├── feed_collector.py # Threat intel feed syncing
-│       ├── main.py       # CLI entrypoint for batch processing
-│       ├── pipeline.py   # Core ingestion/detection logic
-│       ├── rule_evaluator.py # YAML rule matching
-│       ├── scanner.py    # YARA scanning
-│       ├── sigma_importer.py # Sigma rule conversion
-│       └── webapp.py     # Flask web application & API
-├── threat_hunting.db     # SQLite database file (created on run)
-└── README.md             # This file
+Threat-Hunting-Platform/
+├── BACKEND.md              # Backend features & API docs
+├── FRONTEND.md             # Frontend features & UI docs
+├── README.md
+├── package.json            # Optional: run both apps together
+├── backend/                # Python Flask API + detection engine
+│   ├── requirements.txt
+│   ├── hunting_rules.yml
+│   ├── data/logs/
+│   ├── rules/
+│   ├── scripts helpers (setup_admin.py, generate_*.py)
+│   ├── tests/
+│   └── src/th/             # webapp, pipeline, db, scanner, ...
+└── frontend/               # React SIEM dashboard
+    ├── package.json
+    ├── .env.example
+    ├── public/
+    └── src/
 ```
+
+Recommended deeper modular layout is documented in `BACKEND.md` §10 and `FRONTEND.md` §9.
 
 ## 🔮 Future Scope
 
