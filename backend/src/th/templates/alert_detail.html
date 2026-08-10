@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+.section-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #94a3b8;
+}
+
+.kv-table td {
+    padding: 6px;
+}
+
+.action-btn {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    padding: 6px 10px;
+    cursor: pointer;
+    color: #38bdf8;
+    margin-right: 6px;
+}
+
+.action-btn:hover {
+    background: #1e293b;
+}
+</style>
+
+<section class="split">
+
+    <!-- 🔍 ALERT DETAILS -->
+    <section class="panel">
+        <h1 style="margin-top:0;">Alert Investigation</h1>
+
+        {% if alert %}
+        <div class="grid">
+
+            <div>
+                <span class="badge">{{ alert.rule_id }}</span>
+                <span class="badge">{{ alert.severity }}</span>
+                <span class="badge">{{ alert.status }}</span>
+            </div>
+
+            <p>{{ alert.description }}</p>
+
+            <!-- 🔥 QUICK ACTIONS -->
+            <div style="margin:10px 0;">
+                <button class="action-btn" onclick="searchPivot('host={{ alert.host }}')">Pivot Host</button>
+                <button class="action-btn" onclick="searchPivot('ip={{ alert.ip }}')">Pivot IP</button>
+                <button class="action-btn" onclick="searchPivot('{{ alert.process }}')">Search Process</button>
+                <button class="action-btn" onclick="copyIOC('{{ alert.ip }}')">Copy IOC</button>
+            </div>
+
+            <table class="kv-table">
+                <tbody>
+                    <tr><th>MITRE</th><td>{{ alert.tactic }} / {{ alert.technique_id }}</td></tr>
+                    <tr><th>Host</th><td class="mono">{{ alert.host }}</td></tr>
+                    <tr><th>User</th><td class="mono">{{ alert.user }}</td></tr>
+                    <tr><th>Process</th><td class="mono">{{ alert.process }}</td></tr>
+                    <tr><th>Command</th><td class="mono">{{ alert.commandline }}</td></tr>
+                    <tr><th>IP</th><td class="mono">{{ alert.ip }}</td></tr>
+                    <tr><th>Domain</th><td class="mono">{{ alert.domain or "-" }}</td></tr>
+                    <tr><th>Hash</th><td class="mono">{{ alert.file_hash or "-" }}</td></tr>
+                    <tr><th>Source</th><td class="mono">{{ alert.source_type }}/{{ alert.source_name }}</td></tr>
+                    <tr><th>Suppressed</th><td>{{ "Yes" if alert.is_suppressed else "No" }}</td></tr>
+                </tbody>
+            </table>
+
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- 🧠 CASE MANAGEMENT -->
+    <section class="panel">
+        <h2 style="margin-top:0;">Case Management</h2>
+
+        {% if alert %}
+        <form method="post" action="{{ url_for('alert_case', alert_id=alert.id) }}" class="grid">
+
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    {% for status in case_statuses %}
+                    <option value="{{ status }}" {% if alert.status == status %}selected{% endif %}>
+                        {{ status }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Assigned To</label>
+                <input name="assigned_to" value="{{ alert.assigned_to }}">
+            </div>
+
+            <div>
+                <label>Notes</label>
+                <textarea name="analyst_notes" rows="6">{{ alert.analyst_notes }}</textarea>
+            </div>
+
+            <button type="submit">Save</button>
+
+        </form>
+        {% endif %}
+    </section>
+</section>
+
+<!-- 🔗 RELATED EVENTS -->
+{% if event %}
+<section class="panel" style="margin-top:16px;">
+    <div class="section-title">Related Event</div>
+
+    <table class="kv-table">
+        <tbody>
+            <tr><th>Timestamp</th><td>{{ event.timestamp }}</td></tr>
+            <tr><th>Host</th><td>{{ event.host }}</td></tr>
+            <tr><th>User</th><td>{{ event.user }}</td></tr>
+            <tr><th>Process</th><td>{{ event.process }}</td></tr>
+            <tr><th>Command</th><td>{{ event.commandline }}</td></tr>
+            <tr><th>Raw</th><td class="mono">{{ event.raw_payload }}</td></tr>
+        </tbody>
+    </table>
+</section>
+{% endif %}
+
+<script>
+function searchPivot(query) {
+    window.location.href = "/?q=" + encodeURIComponent(query);
+}
+
+function copyIOC(value) {
+    navigator.clipboard.writeText(value);
+    alert("Copied: " + value);
+}
+</script>
+
+{% endblock %}
