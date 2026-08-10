@@ -1,0 +1,2 @@
+{"timestamp": "2025-12-29T12:14:00", "host": "FW-01", "user": "system", "process": "firewall", "commandline": "Outbound connection allowed", "ip": "45.148.10.12", "domain": "malicious.example.com", "source_type": "firewall", "source_name": "firewall.log"}
+{"timestamp": "2025-12-29T12:15:00", "host": "FW-01", "user": "system", "process": "firewall", "commandline": "DNS lookup observed", "ip": "8.8.8.8", "domain": "safe.example.org", "source_type": "firewall", "source_name": "firewall.log"}

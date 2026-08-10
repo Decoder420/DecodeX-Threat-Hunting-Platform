@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.venv-1/
+*.db
+
+# Node
+node_modules/
+siem-ui/build/
+
+# Env / secrets
+.env
+.env.local
+*.env
+
+# OS
+.DS_Store
+
+# Tooling
+ngrok.exe
+ngrok
