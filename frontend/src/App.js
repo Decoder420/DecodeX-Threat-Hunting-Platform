@@ -6,7 +6,13 @@ import AlertsPage from "./pages/AlertsPage";
 import CasesPage from "./pages/CasesPage";
 import HuntingPage from "./pages/HuntingPage";
 import IntelligencePage from "./pages/IntelligencePage";
-import WebScanPage from "./pages/WebScanPage";
+import WebSecurityLayout from "./pages/web/WebSecurityLayout";
+import WebOverviewPage from "./pages/web/WebOverviewPage";
+import WebTargetsPage from "./pages/web/WebTargetsPage";
+import WebScansPage from "./pages/web/WebScansPage";
+import WebFindingsPage from "./pages/web/WebFindingsPage";
+import WebAttackSurfacePage from "./pages/web/WebAttackSurfacePage";
+import WebScannerHealthPage from "./pages/web/WebScannerHealthPage";
 import ReportsPage from "./pages/ReportsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminAuditPage from "./pages/AdminAuditPage";
@@ -170,7 +176,7 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route
           path="/login"
@@ -243,10 +249,17 @@ export default function App() {
                     path="/webscan"
                     element={
                       <ProtectedRoute permission="webscan.read">
-                        <WebScanPage />
+                        <WebSecurityLayout />
                       </ProtectedRoute>
                     }
-                  />
+                  >
+                    <Route index element={<WebOverviewPage />} />
+                    <Route path="targets" element={<WebTargetsPage />} />
+                    <Route path="scans" element={<WebScansPage />} />
+                    <Route path="findings" element={<WebFindingsPage />} />
+                    <Route path="attack-surface" element={<WebAttackSurfacePage />} />
+                    <Route path="health" element={<WebScannerHealthPage />} />
+                  </Route>
                   <Route
                     path="/reports"
                     element={

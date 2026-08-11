@@ -49,12 +49,18 @@ _allowed_origins_str = os.environ.get(
     "ALLOWED_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
 )
-_allowed_origins = _allowed_origins_str.split(",")
+_allowed_origins = [o.strip() for o in _allowed_origins_str.split(",") if o.strip()]
 # Also allow ngrok domains for development.
 # The free plan uses a random subdomain on each launch.
 _allowed_origins.append(re.compile(r"https?://.*\.ngrok-free\.app"))
 
-CORS(app, resources={r"/*": {"origins": _allowed_origins}}, supports_credentials=True)
+CORS(
+    app,
+    resources={r"/api/*": {"origins": _allowed_origins}},
+    supports_credentials=True,
+    allow_headers=["Authorization", "Content-Type"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
 socketio = SocketIO(app, cors_allowed_origins=_allowed_origins, async_mode="threading")
 
 RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
@@ -71,6 +77,9 @@ def api_error(code: str, message: str, status: int):
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Let Flask-CORS answer preflight without auth.
+        if request.method == "OPTIONS":
+            return ("", 204)
         auth_header = request.headers.get('Authorization', '')
         token = auth_header.split("Bearer ", 1)[-1].strip() if "Bearer " in auth_header else auth_header.strip()
         db = get_db()
@@ -787,8 +796,8 @@ def activate_user(user_id):
 @require_permission("users.write")
 def reset_user_password(user_id):
     data = request.get_json(silent=True) or {}
-    password = data.get("password") or ""
-    if len(password) < 8:
+    password = str(data.get("password") or "")
+    if len(password.strip()) < 8:
         return api_error("BAD_REQUEST", "password must be 8+ characters.", 400)
 
     db = get_db()
@@ -941,6 +950,11 @@ register_enterprise_routes(
     require_permission=require_permission,
     broadcast_new_alert=broadcast_new_alert,
 )
+
+# Web scan progress / lifecycle events over Socket.IO
+from .web_scanner import set_broadcast as set_webscan_broadcast
+
+set_webscan_broadcast(lambda event, payload: socketio.emit(event, payload))
 
 # Start background log tailer (offset-tracked via IngestionState).
 start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))

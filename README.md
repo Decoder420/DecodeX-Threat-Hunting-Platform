@@ -18,11 +18,11 @@ This project provides a practical, hands-on tool for learning about security ope
 - **Cases & incidents**: Create cases from alerts; correlated incident timelines.
 - **Assets & TI**: Asset inventory + enriched IOC store / feed sync.
 - **Audit logging**: Append-only audit trail for login, RBAC, SOAR, scans.
-- **Authorized web scanner**: Safe TLS/header/cookie checks on AUTHORIZED targets only.
+- **Web Application Security**: Authorized AppSec scanning (HTTP/TLS/headers/tech fingerprinting, optional Nuclei/Nmap/ZAP), SSRF protections, risk scoring, scan comparison, and SOC alert/case integration. See [`docs/WEB_SCANNER.md`](./docs/WEB_SCANNER.md).
 - **SOAR (simulation)**: Permissioned simulated response actions with clear SIMULATION MODE labeling.
 - **Live Socket.IO alerts** and **PDF incident reports**.
 
-Detailed docs: [`docs/FULL_PLATFORM_REPORT.md`](./docs/FULL_PLATFORM_REPORT.md) · [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) · [`docs/API.md`](./docs/API.md) · [`docs/RBAC.md`](./docs/RBAC.md)
+Detailed docs: [`docs/FULL_PLATFORM_REPORT.md`](./docs/FULL_PLATFORM_REPORT.md) · [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) · [`docs/API.md`](./docs/API.md) · [`docs/RBAC.md`](./docs/RBAC.md) · [`docs/WEB_SCANNER.md`](./docs/WEB_SCANNER.md)
 
 ## 🏗️ Architecture
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Text, Boolean, UniqueConstraint, inspect, text, create_engine, event
+    Column, Integer, String, Float, DateTime, Text, Boolean, UniqueConstraint, inspect, text, create_engine, event
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -432,6 +432,7 @@ class WebTarget(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     last_scan = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=False, default="")
+    environment = Column(String, nullable=False, default="lab")
 
 
 class WebScan(Base):
@@ -445,6 +446,23 @@ class WebScan(Base):
     findings_count = Column(Integer, nullable=False, default=0)
     high_count = Column(Integer, nullable=False, default=0)
     created_by = Column(String, nullable=False, default="")
+    critical_count = Column(Integer, nullable=False, default=0)
+    medium_count = Column(Integer, nullable=False, default=0)
+    low_count = Column(Integer, nullable=False, default=0)
+    info_count = Column(Integer, nullable=False, default=0)
+    scan_profile = Column(String, nullable=False, default="QUICK")
+    progress = Column(Integer, nullable=False, default=0)
+    current_stage = Column(String, nullable=False, default="")
+    error_message = Column(Text, nullable=False, default="")
+    duration = Column(Integer, nullable=False, default=0)
+    discovered_urls = Column(Integer, nullable=False, default=0)
+    discovered_ports = Column(Integer, nullable=False, default=0)
+    technologies_count = Column(Integer, nullable=False, default=0)
+    risk_score = Column(Integer, nullable=False, default=0)
+    engine_versions = Column(Text, nullable=False, default="")
+    configuration_json = Column(Text, nullable=False, default="")
+    ports_json = Column(Text, nullable=False, default="")
+    technologies_json = Column(Text, nullable=False, default="")
 
 
 class WebFinding(Base):
@@ -463,6 +481,25 @@ class WebFinding(Base):
     url = Column(String, nullable=False, default="")
     risk_score = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=utcnow)
+    cwe = Column(String, nullable=False, default="")
+    owasp = Column(String, nullable=False, default="")
+    cve = Column(String, nullable=False, default="")
+    cvss = Column(Float, nullable=False, default=0.0)
+    remediation = Column(Text, nullable=False, default="")
+    affected_url = Column(String, nullable=False, default="")
+    parameter = Column(String, nullable=False, default="")
+    method = Column(String, nullable=False, default="")
+    request = Column(Text, nullable=False, default="")
+    response = Column(Text, nullable=False, default="")
+    fingerprint = Column(String, nullable=False, default="", index=True)
+    source_engine = Column(String, nullable=False, default="builtin")
+    template_id = Column(String, nullable=False, default="")
+    status = Column(String, nullable=False, default="OPEN")
+    first_seen = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
+    occurrence_count = Column(Integer, nullable=False, default=1)
+    case_id = Column(Integer, nullable=True)
+    risk_factors_json = Column(Text, nullable=False, default="")
 
 
 def _column_names(table_name: str) -> set[str]:
@@ -557,6 +594,60 @@ def _ensure_legacy_sqlite_columns() -> None:
             _add_column_if_missing(connection, "ingestion_state", "last_error", "ALTER TABLE ingestion_state ADD COLUMN last_error VARCHAR NOT NULL DEFAULT ''")
             _add_column_if_missing(connection, "ingestion_state", "event_count", "ALTER TABLE ingestion_state ADD COLUMN event_count INTEGER NOT NULL DEFAULT 0")
             _add_column_if_missing(connection, "ingestion_state", "last_event_at", "ALTER TABLE ingestion_state ADD COLUMN last_event_at DATETIME")
+
+        if inspect(engine).has_table("web_targets"):
+            _add_column_if_missing(
+                connection, "web_targets", "environment",
+                "ALTER TABLE web_targets ADD COLUMN environment VARCHAR NOT NULL DEFAULT 'lab'",
+            )
+
+        if inspect(engine).has_table("web_scans"):
+            scan_cols = {
+                "critical_count": "ALTER TABLE web_scans ADD COLUMN critical_count INTEGER NOT NULL DEFAULT 0",
+                "medium_count": "ALTER TABLE web_scans ADD COLUMN medium_count INTEGER NOT NULL DEFAULT 0",
+                "low_count": "ALTER TABLE web_scans ADD COLUMN low_count INTEGER NOT NULL DEFAULT 0",
+                "info_count": "ALTER TABLE web_scans ADD COLUMN info_count INTEGER NOT NULL DEFAULT 0",
+                "scan_profile": "ALTER TABLE web_scans ADD COLUMN scan_profile VARCHAR NOT NULL DEFAULT 'QUICK'",
+                "progress": "ALTER TABLE web_scans ADD COLUMN progress INTEGER NOT NULL DEFAULT 0",
+                "current_stage": "ALTER TABLE web_scans ADD COLUMN current_stage VARCHAR NOT NULL DEFAULT ''",
+                "error_message": "ALTER TABLE web_scans ADD COLUMN error_message TEXT NOT NULL DEFAULT ''",
+                "duration": "ALTER TABLE web_scans ADD COLUMN duration INTEGER NOT NULL DEFAULT 0",
+                "discovered_urls": "ALTER TABLE web_scans ADD COLUMN discovered_urls INTEGER NOT NULL DEFAULT 0",
+                "discovered_ports": "ALTER TABLE web_scans ADD COLUMN discovered_ports INTEGER NOT NULL DEFAULT 0",
+                "technologies_count": "ALTER TABLE web_scans ADD COLUMN technologies_count INTEGER NOT NULL DEFAULT 0",
+                "risk_score": "ALTER TABLE web_scans ADD COLUMN risk_score INTEGER NOT NULL DEFAULT 0",
+                "engine_versions": "ALTER TABLE web_scans ADD COLUMN engine_versions TEXT NOT NULL DEFAULT ''",
+                "configuration_json": "ALTER TABLE web_scans ADD COLUMN configuration_json TEXT NOT NULL DEFAULT ''",
+                "ports_json": "ALTER TABLE web_scans ADD COLUMN ports_json TEXT NOT NULL DEFAULT ''",
+                "technologies_json": "ALTER TABLE web_scans ADD COLUMN technologies_json TEXT NOT NULL DEFAULT ''",
+            }
+            for column_name, ddl in scan_cols.items():
+                _add_column_if_missing(connection, "web_scans", column_name, ddl)
+
+        if inspect(engine).has_table("web_findings"):
+            finding_cols = {
+                "cwe": "ALTER TABLE web_findings ADD COLUMN cwe VARCHAR NOT NULL DEFAULT ''",
+                "owasp": "ALTER TABLE web_findings ADD COLUMN owasp VARCHAR NOT NULL DEFAULT ''",
+                "cve": "ALTER TABLE web_findings ADD COLUMN cve VARCHAR NOT NULL DEFAULT ''",
+                "cvss": "ALTER TABLE web_findings ADD COLUMN cvss FLOAT NOT NULL DEFAULT 0",
+                "remediation": "ALTER TABLE web_findings ADD COLUMN remediation TEXT NOT NULL DEFAULT ''",
+                "affected_url": "ALTER TABLE web_findings ADD COLUMN affected_url VARCHAR NOT NULL DEFAULT ''",
+                "parameter": "ALTER TABLE web_findings ADD COLUMN parameter VARCHAR NOT NULL DEFAULT ''",
+                "method": "ALTER TABLE web_findings ADD COLUMN method VARCHAR NOT NULL DEFAULT ''",
+                "request": "ALTER TABLE web_findings ADD COLUMN request TEXT NOT NULL DEFAULT ''",
+                "response": "ALTER TABLE web_findings ADD COLUMN response TEXT NOT NULL DEFAULT ''",
+                "fingerprint": "ALTER TABLE web_findings ADD COLUMN fingerprint VARCHAR NOT NULL DEFAULT ''",
+                "source_engine": "ALTER TABLE web_findings ADD COLUMN source_engine VARCHAR NOT NULL DEFAULT 'builtin'",
+                "template_id": "ALTER TABLE web_findings ADD COLUMN template_id VARCHAR NOT NULL DEFAULT ''",
+                "status": "ALTER TABLE web_findings ADD COLUMN status VARCHAR NOT NULL DEFAULT 'OPEN'",
+                "first_seen": "ALTER TABLE web_findings ADD COLUMN first_seen DATETIME",
+                "last_seen": "ALTER TABLE web_findings ADD COLUMN last_seen DATETIME",
+                "occurrence_count": "ALTER TABLE web_findings ADD COLUMN occurrence_count INTEGER NOT NULL DEFAULT 1",
+                "case_id": "ALTER TABLE web_findings ADD COLUMN case_id INTEGER",
+                "risk_factors_json": "ALTER TABLE web_findings ADD COLUMN risk_factors_json TEXT NOT NULL DEFAULT ''",
+            }
+            for column_name, ddl in finding_cols.items():
+                _add_column_if_missing(connection, "web_findings", column_name, ddl)
 
 
 def _ensure_role_user(db, *, username: str, password: str | None, role: str, allow_generated: bool = False) -> None:
@@ -693,7 +784,15 @@ def get_user_for_token(db, token: str):
     entry = db.query(AuthToken).filter_by(token=token).first()
     if not entry:
         return None
-    if entry.expires_at.replace(tzinfo=timezone.utc) < utcnow():
+    expires = entry.expires_at
+    if expires is None:
+        db.delete(entry)
+        db.commit()
+        return None
+    # Normalize to naive UTC for comparison with utcnow().
+    if getattr(expires, "tzinfo", None) is not None:
+        expires = expires.astimezone(timezone.utc).replace(tzinfo=None)
+    if expires < utcnow():
         db.delete(entry)
         db.commit()
         return None

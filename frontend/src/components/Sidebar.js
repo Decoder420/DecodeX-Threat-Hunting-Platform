@@ -8,7 +8,7 @@ const LINKS = [
   { to: "/hunting", label: "Hunting", permission: "events.read" },
   { to: "/cases", label: "Cases", permission: "cases.read" },
   { to: "/intelligence", label: "Intelligence", permission: "ioc.read" },
-  { to: "/webscan", label: "Web Scan", permission: "webscan.read" },
+  { to: "/webscan", label: "Web Security", permission: "webscan.read" },
   { to: "/reports", label: "Reports", permission: "reports.read" },
   { to: "/admin/users", label: "Admin Users", permission: "users.read" },
   { to: "/admin/audit", label: "Audit Logs", permission: "audit.read" },
