@@ -20,6 +20,7 @@ from .db import (
     get_db, close_db, Alert, Event, User, FeedSource, SuppressionRule, IOC, ROLE_RANK,
     issue_token, get_user_for_token, revoke_token, revoke_all_tokens_for_user,
     create_ingest_key, get_active_ingest_key, revoke_ingest_key, IngestKey,
+    user_has_permission, serialize_user, count_active_admins, utcnow,
 )
 from .pipeline import (
     DEFAULT_RULE_FILE,
@@ -32,6 +33,10 @@ from .pipeline import (
 )
 from .rule_evaluator import RuleEvaluator
 from .scanner import scanner
+from .audit import write_audit
+from .enterprise_api import register_enterprise_routes
+from .log_watcher import start_log_watcher
+from .db import Asset, Case, WebFinding
 from sqlalchemy import func
 
 app = Flask(__name__)
@@ -58,6 +63,11 @@ RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
 # Real, DB-backed session tokens. Issued by /api/auth/login after checking
 # the hashed password, verified here on every request, and revocable via
 # /api/auth/logout. No more shared static token.
+def api_error(code: str, message: str, status: int):
+    """Consistent JSON error envelope used by auth/RBAC paths."""
+    return jsonify({"error": {"code": code, "message": message}}), status
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -66,7 +76,7 @@ def login_required(f):
         db = get_db()
         user = get_user_for_token(db, token)
         if not user:
-            return jsonify({"error": "Unauthorized"}), 401
+            return api_error("UNAUTHORIZED", "Authentication required.", 401)
         g.current_user = user
         return f(*args, **kwargs)
     return decorated
@@ -77,21 +87,40 @@ def admin_required(f):
     @login_required
     def decorated(*args, **kwargs):
         if g.current_user.role != "admin":
-            return jsonify({"error": "Forbidden"}), 403
+            return api_error("FORBIDDEN", "Admin role required.", 403)
         return f(*args, **kwargs)
     return decorated
 
 
+def require_permission(permission: str):
+    """Fine-grained RBAC. Stack under @login_required (uses g.current_user)."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not user_has_permission(g.current_user, permission):
+                return api_error(
+                    "FORBIDDEN",
+                    f"You do not have permission to perform this action ({permission}).",
+                    403,
+                )
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
 def role_required(min_role):
-    """Require the caller's role to be at least `min_role` in the
-    viewer < analyst < admin hierarchy. Always stack under @login_required
-    (it reads g.current_user, which login_required sets)."""
+    """Legacy hierarchy check (viewer < analyst < admin). Prefer
+    @require_permission for new endpoints; kept for compatibility."""
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             user_rank = ROLE_RANK.get(g.current_user.role, 0)
             if user_rank < ROLE_RANK.get(min_role, 99):
-                return jsonify({"error": f"Forbidden: requires '{min_role}' role or higher"}), 403
+                return api_error(
+                    "FORBIDDEN",
+                    f"Requires '{min_role}' role or higher.",
+                    403,
+                )
             return f(*args, **kwargs)
         return decorated
     return decorator
@@ -117,19 +146,29 @@ def login():
     data = request.get_json(silent=True) or {}
     username, password = data.get("username", "").strip(), data.get("password", "")
     if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
+        return api_error("BAD_REQUEST", "Username and password required.", 400)
 
     db = get_db()
     user = db.query(User).filter_by(username=username).first()
     # Constant-shape response whether the user exists or not, to avoid
     # leaking which usernames are valid via response differences.
     if not user or not user.is_active or not check_password_hash(user.password_hash, password):
-        return jsonify({"error": "Invalid username or password"}), 401
+        write_audit(
+            db,
+            action="login.failure",
+            username=username,
+            details="Invalid credentials",
+            success=False,
+        )
+        return api_error("UNAUTHORIZED", "Invalid username or password.", 401)
 
+    user.last_login = utcnow()
+    db.commit()
     token = issue_token(db, user)
+    write_audit(db, action="login.success", user=user, details="Session issued")
     return jsonify({
         "token": token,
-        "user": {"id": user.id, "username": user.username, "role": user.role},
+        "user": serialize_user(user),
     })
 
 
@@ -138,16 +177,19 @@ def logout():
     # Idempotent: always succeed locally even if the token is already gone.
     auth_header = request.headers.get('Authorization', '')
     token = auth_header.split("Bearer ", 1)[-1].strip() if "Bearer " in auth_header else auth_header.strip()
+    db = get_db()
+    user = get_user_for_token(db, token) if token else None
     if token:
-        revoke_token(get_db(), token)
+        revoke_token(db, token)
+    if user:
+        write_audit(db, action="logout", user=user, details="Session revoked")
     return jsonify({"status": "logged out"})
 
 
 @app.route("/api/auth/me")
 @login_required
 def me():
-    u = g.current_user
-    return jsonify({"id": u.id, "username": u.username, "role": u.role})
+    return jsonify(serialize_user(g.current_user))
 
 def broadcast_new_alert(alert_obj):
     socketio.emit('new_alert', {
@@ -167,6 +209,7 @@ def broadcast_new_alert(alert_obj):
 
 @app.route("/api/dashboard")
 @login_required
+@require_permission("dashboard.read")
 def get_dashboard():
     range_val = request.args.get("range", "24h")
     db = get_db()
@@ -187,6 +230,8 @@ def get_dashboard():
     # By fetching all alerts first, we can derive counts in memory
     # instead of hitting the database multiple times for the same dataset.
     high_or_above = sum(1 for a in alerts if a.severity.lower() in ['high', 'critical'])
+    critical_alerts = sum(1 for a in alerts if a.severity.lower() == "critical")
+    high_alerts = sum(1 for a in alerts if a.severity.lower() == "high")
 
     last_event = db.query(Event).order_by(Event.timestamp.desc()).first()
     last_ingest = last_event.timestamp.strftime("%Y-%m-%d %H:%M:%S") if last_event else "N/A"
@@ -197,9 +242,19 @@ def get_dashboard():
         (row[0] or "unknown"): row[1]
         for row in db.query(IOC.type, func.count(IOC.id)).group_by(IOC.type).all()
     }
+    open_cases = db.query(func.count(Case.id)).filter(Case.status.in_(["OPEN", "INVESTIGATING", "Open", "In Progress"])).scalar() or 0
+    critical_assets = db.query(func.count(Asset.id)).filter(func.upper(Asset.criticality) == "CRITICAL").scalar() or 0
+    web_findings = db.query(func.count(WebFinding.id)).scalar() or 0
 
-    # Pre-calculate tactic counts for MITRE heatmap
-    tactic_counts = [{"name": t, "value": c} for t, c in db.query(Alert.tactic, func.count(Alert.id)).filter(Alert.event_timestamp >= start_time).group_by(Alert.tactic).all()]
+    # Pre-calculate tactic counts for MITRE heatmap (skip empty tactics)
+    tactic_counts = [
+        {"name": t, "value": c}
+        for t, c in db.query(Alert.tactic, func.count(Alert.id))
+        .filter(Alert.event_timestamp >= start_time, Alert.tactic != "")
+        .group_by(Alert.tactic)
+        .all()
+        if t
+    ]
 
     return jsonify({
         "metadata": {
@@ -207,24 +262,37 @@ def get_dashboard():
             "total_events": total_events,
             "total_alerts": len(alerts),
             "total_iocs": ioc_total,
+            "open_cases": open_cases,
+            "critical_assets": critical_assets,
+            "web_findings": web_findings,
         },
         "kpis": {
             "total_alerts": len(alerts),
-            "high_or_above": high_or_above
+            "high_or_above": high_or_above,
+            "critical_alerts": critical_alerts,
+            "high_alerts": high_alerts,
+            "total_events": total_events,
+            "open_cases": open_cases,
+            "critical_assets": critical_assets,
+            "ioc_matches": ioc_total,
+            "web_findings": web_findings,
         },
         "alerts": [
             {
                 "id": a.id, 
-                "name": a.description or f"{a.tactic} Activity", 
+                "name": a.title or a.description or f"{a.tactic} Activity", 
                 "severity": a.severity, 
                 "status": a.status or "OPEN",
                 "tactic": a.tactic,
+                "technique_id": a.technique_id,
+                "technique": a.technique_name,
+                "risk_score": a.risk_score or 0,
                 "host": a.host, 
                 "user": a.user, 
-                "source": "endpoint/sample.log",
+                "source": a.source_name or "endpoint/sample.log",
                 "timestamp": a.event_timestamp.isoformat(),
                 "assigned": a.assigned_to or "Unassigned",
-                "suppressed": "No"
+                "suppressed": "Yes" if a.is_suppressed else "No",
             } for a in alerts
         ],
         "feeds": [
@@ -251,6 +319,7 @@ def get_dashboard():
 
 @app.route("/api/alert_context/<int:alert_id>")
 @login_required
+@require_permission("alerts.read")
 def get_alert_context(alert_id):
     db = get_db()
     alert = db.get(Alert, alert_id)
@@ -263,6 +332,16 @@ def get_alert_context(alert_id):
         for u in db.query(User).filter_by(is_active=True).order_by(User.username).all()
     ]
 
+    ioc_hits = []
+    if alert.ip:
+        hit = db.query(IOC).filter_by(type="ip", value=alert.ip).first()
+        if hit:
+            ioc_hits.append({"indicator": hit.value, "type": hit.type, "source": hit.source, "confidence": getattr(hit, "confidence", 70)})
+    if alert.domain:
+        hit = db.query(IOC).filter_by(type="domain", value=alert.domain).first()
+        if hit:
+            ioc_hits.append({"indicator": hit.value, "type": hit.type, "source": hit.source, "confidence": getattr(hit, "confidence", 70)})
+
     return jsonify({
         "alert_id": alert.id,
         "status": alert.status or "Open",
@@ -270,12 +349,29 @@ def get_alert_context(alert_id):
         "assigned_to": alert.assigned_to or "",
         "analyst_notes": alert.analyst_notes or "",
         "assignees": assignees,
-        "timeline": [{"id": e.id, "ts": e.timestamp.isoformat(), "proc": e.process, "cmd": e.commandline, "is_incident": e.id == alert.event_id} for e in events]
+        "risk_score": alert.risk_score or 0,
+        "confidence": alert.confidence or 70,
+        "tactic": alert.tactic,
+        "technique_id": alert.technique_id,
+        "technique_name": alert.technique_name,
+        "ioc_matches": ioc_hits,
+        "timeline": [{
+            "id": e.id,
+            "ts": e.timestamp.isoformat(),
+            "host": e.host,
+            "user": e.user,
+            "proc": e.process,
+            "cmd": e.commandline,
+            "ip": e.ip,
+            "event_type": getattr(e, "event_type", ""),
+            "source": e.source_name,
+            "is_incident": e.id == alert.event_id,
+        } for e in events]
     })
 
 @app.route("/api/alerts/<int:alert_id>/case", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("alerts.write")
 def update_alert_case_route(alert_id):
     """Updates an alert's case status, assignment, and notes."""
     data = request.get_json(silent=True) or request.form
@@ -298,7 +394,7 @@ def update_alert_case_route(alert_id):
 # --- LOG INGESTION ENDPOINT ---
 @app.route("/api/ingest_logs", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("events.write")
 def ingest_logs_route():
     payload = request.get_json(silent=True)
     if payload is None:
@@ -313,19 +409,37 @@ def ingest_logs_route():
 # UI flow works end-to-end; wiring a real integration (see integrations/)
 # is tracked as a follow-up. The response says so explicitly so nothing
 # downstream (reports, audit logs) can mistake this for a real action.
+ALLOWED_SOAR_ACTIONS = {
+    "BLOCK_IP", "ISOLATE_HOST", "DISABLE_USER", "MARK_FALSE_POSITIVE", "CLOSE_ALERT",
+    # UI legacy labels
+    "Isolate Host", "Block IP",
+}
+
 @app.route("/api/soar/action", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("soar.execute")
 def soar_action():
     data = request.get_json(silent=True) or {}
     action = data.get("action")
     target = data.get("target")
     if not action or not target:
-        return jsonify({"error": "action and target are required"}), 400
-    time.sleep(1)
+        return api_error("BAD_REQUEST", "action and target are required.", 400)
+    if action not in ALLOWED_SOAR_ACTIONS:
+        return api_error("BAD_REQUEST", f"Unsupported SOAR action '{action}'.", 400)
+    time.sleep(0.3)
+    write_audit(
+        get_db(),
+        action="soar.execute",
+        user=g.current_user,
+        resource_type="soar",
+        resource_id=str(target),
+        details=f"SIMULATION action={action} target={target}",
+        success=True,
+    )
     return jsonify({
         "status": "simulated",
-        "message": f"[SIMULATED] Would execute '{action}' on {target}. No real integration is connected yet.",
+        "mode": "SIMULATION",
+        "message": f"[SIMULATION MODE] Would execute '{action}' on {target}. No real firewall/EDR action was performed.",
     })
 
 # --- PDF REPORTING ENGINE ---
@@ -335,10 +449,15 @@ def generate_report(alert_id):
     # opened directly by the browser for file download, not called via axios.
     token = request.args.get("token", "")
     db = get_db()
-    if not get_user_for_token(db, token):
+    user = get_user_for_token(db, token)
+    if not user:
         return "Unauthorized", 401
+    if not user_has_permission(user, "reports.read"):
+        return "Forbidden", 403
 
     alert = db.get(Alert, alert_id)
+    if not alert:
+        return "Not found", 404
     start, end = alert.event_timestamp - timedelta(minutes=15), alert.event_timestamp + timedelta(minutes=15)
     events = db.query(Event).filter(Event.host == alert.host, Event.timestamp >= start, Event.timestamp <= end).all()
 
@@ -366,11 +485,11 @@ def generate_report(alert_id):
 # --- ADMIN, YARA & SUPPRESSION ---
 @app.route("/api/admin/data")
 @login_required
-@role_required("admin")
+@require_permission("users.read")
 def get_admin_data():
     db = get_db()
     return jsonify({
-        "users": [{"id": u.id, "username": u.username, "role": u.role} for u in db.query(User).all()],
+        "users": [serialize_user(u) for u in db.query(User).all()],
         "feeds": [{"id": f.id, "name": f.name, "url": f.url, "enabled": f.enabled, "last_sync": f.last_sync.isoformat() if f.last_sync else None, "last_error": f.last_error} for f in db.query(FeedSource).all()],
         "suppressions": [{"id": s.id, "indicator": s.field_value or s.name, "reason": s.reason, "active": s.is_active} for s in db.query(SuppressionRule).all()],
         "rules": []
@@ -378,7 +497,7 @@ def get_admin_data():
 
 @app.route("/api/admin/feed/<int:feed_id>/toggle", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("feeds.write")
 def toggle_feed(feed_id):
     db = get_db()
     feed = db.query(FeedSource).filter_by(id=feed_id).first()
@@ -396,7 +515,7 @@ def toggle_feed(feed_id):
 
 @app.route("/api/admin/suppressions/add", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("suppressions.write")
 def add_suppression():
     data = request.get_json(silent=True) or {}
     indicator = data.get("indicator") or "unknown"
@@ -449,7 +568,7 @@ def _yara_template(rule_name: str) -> str:
 
 @app.route("/api/admin/rules")
 @login_required
-@role_required("analyst")
+@require_permission("yara.read")
 def list_rules():
     if not os.path.exists(RULES_DIR): os.makedirs(RULES_DIR)
     files = sorted(f for f in os.listdir(RULES_DIR) if f.endswith(".yar"))
@@ -457,28 +576,28 @@ def list_rules():
 
 @app.route("/api/admin/rules/content")
 @login_required
-@role_required("analyst")
+@require_permission("yara.read")
 def get_rule_content():
     filename = _safe_yara_filename(request.args.get("file"))
     if not filename:
-        return jsonify({"error": "Invalid rule filename"}), 400
+        return api_error("BAD_REQUEST", "Invalid rule filename.", 400)
     path = os.path.join(RULES_DIR, filename)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return jsonify({"content": f.read(), "file": filename})
-    return jsonify({"error": "File not found"}), 404
+    return api_error("NOT_FOUND", "File not found.", 404)
 
 @app.route("/api/admin/rules/save", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("yara.write")
 def save_rule():
     data = request.get_json(silent=True) or {}
     filename = _safe_yara_filename(data.get("file"))
     if not filename:
-        return jsonify({"error": "Invalid rule filename"}), 400
+        return api_error("BAD_REQUEST", "Invalid rule filename.", 400)
     content = data.get("content")
     if content is None:
-        return jsonify({"error": "Rule content required"}), 400
+        return api_error("BAD_REQUEST", "Rule content required.", 400)
     if not os.path.exists(RULES_DIR):
         os.makedirs(RULES_DIR)
     path = os.path.join(RULES_DIR, filename)
@@ -490,18 +609,18 @@ def save_rule():
 
 @app.route("/api/admin/rules/create", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("yara.write")
 def create_rule():
     """Create a new blank/template YARA rule file."""
     data = request.get_json(silent=True) or {}
     filename = _safe_yara_filename(data.get("file") or data.get("name"))
     if not filename:
-        return jsonify({"error": "Provide a valid .yar filename"}), 400
+        return api_error("BAD_REQUEST", "Provide a valid .yar filename.", 400)
     if not os.path.exists(RULES_DIR):
         os.makedirs(RULES_DIR)
     path = os.path.join(RULES_DIR, filename)
     if os.path.exists(path) and not data.get("overwrite"):
-        return jsonify({"error": f"Rule '{filename}' already exists"}), 409
+        return api_error("CONFLICT", f"Rule '{filename}' already exists.", 409)
     content = data.get("content")
     if content is None or str(content).strip() == "":
         content = _yara_template(os.path.splitext(filename)[0])
@@ -513,7 +632,7 @@ def create_rule():
 
 @app.route("/api/admin/rules/upload", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("yara.write")
 def upload_rule():
     """Upload one or more .yar signature files."""
     files = request.files.getlist("files") or []
@@ -557,7 +676,7 @@ def upload_rule():
 
 @app.route("/api/admin/feeds/sync", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("ioc.write")
 def sync_feeds():
     summary = sync_ioc_feeds()
     return jsonify({"status": "success", "summary": summary})
@@ -566,21 +685,17 @@ def sync_feeds():
 # --- USER MANAGEMENT (admin only) ---
 @app.route("/api/admin/users", methods=["GET"])
 @login_required
-@role_required("admin")
+@require_permission("users.read")
 def list_users():
     db = get_db()
     return jsonify({
-        "users": [
-            {"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active,
-             "created_at": u.created_at.isoformat()}
-            for u in db.query(User).order_by(User.id).all()
-        ]
+        "users": [serialize_user(u) for u in db.query(User).order_by(User.id).all()]
     })
 
 
 @app.route("/api/admin/users", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("users.write")
 def create_user():
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
@@ -588,54 +703,103 @@ def create_user():
     role = data.get("role") or "analyst"
 
     if role not in ROLE_RANK:
-        return jsonify({"error": f"role must be one of {list(ROLE_RANK)}"}), 400
+        return api_error("BAD_REQUEST", f"role must be one of {list(ROLE_RANK)}", 400)
     if not username or len(password) < 8:
-        return jsonify({"error": "username required, password must be 8+ characters"}), 400
+        return api_error("BAD_REQUEST", "username required, password must be 8+ characters.", 400)
 
     db = get_db()
     if db.query(User).filter_by(username=username).first():
-        return jsonify({"error": "Username already exists"}), 409
+        return api_error("CONFLICT", "Username already exists.", 409)
 
     user = User(username=username, password_hash=generate_password_hash(password), role=role, org_id=g.current_user.org_id)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return jsonify({"id": user.id, "username": user.username, "role": user.role}), 201
+    return jsonify(serialize_user(user)), 201
 
 
 @app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("users.write")
 def update_user_role(user_id):
     data = request.get_json(silent=True) or {}
     role = data.get("role")
     if role not in ROLE_RANK:
-        return jsonify({"error": f"role must be one of {list(ROLE_RANK)}"}), 400
+        return api_error("BAD_REQUEST", f"role must be one of {list(ROLE_RANK)}", 400)
 
     db = get_db()
     user = db.get(User, user_id)
     if not user:
-        return jsonify({"error": "User not found"}), 404
+        return api_error("NOT_FOUND", "User not found.", 404)
+
+    # Prevent demoting/removing the last active administrator.
+    if user.role == "admin" and user.is_active and role != "admin":
+        if count_active_admins(db, exclude_user_id=user.id) < 1:
+            return api_error(
+                "CONFLICT",
+                "Cannot change role: this is the last active administrator.",
+                409,
+            )
+
     user.role = role
     db.commit()
     revoke_all_tokens_for_user(db, user.id)  # force re-login so new role takes effect immediately
-    return jsonify({"id": user.id, "username": user.username, "role": user.role})
+    return jsonify(serialize_user(user))
 
 
 @app.route("/api/admin/users/<int:user_id>/deactivate", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("users.write")
 def deactivate_user(user_id):
     db = get_db()
     user = db.get(User, user_id)
     if not user:
-        return jsonify({"error": "User not found"}), 404
+        return api_error("NOT_FOUND", "User not found.", 404)
     if user.id == g.current_user.id:
-        return jsonify({"error": "Cannot deactivate your own account"}), 400
+        return api_error("BAD_REQUEST", "Cannot deactivate your own account.", 400)
+    if user.role == "admin" and user.is_active and count_active_admins(db, exclude_user_id=user.id) < 1:
+        return api_error(
+            "CONFLICT",
+            "Cannot deactivate the last active administrator.",
+            409,
+        )
     user.is_active = False
     db.commit()
     revoke_all_tokens_for_user(db, user.id)
     return jsonify({"status": "deactivated", "id": user.id})
+
+
+@app.route("/api/admin/users/<int:user_id>/activate", methods=["POST"])
+@login_required
+@require_permission("users.write")
+def activate_user(user_id):
+    db = get_db()
+    user = db.get(User, user_id)
+    if not user:
+        return api_error("NOT_FOUND", "User not found.", 404)
+    user.is_active = True
+    db.commit()
+    return jsonify(serialize_user(user))
+
+
+@app.route("/api/admin/users/<int:user_id>/reset_password", methods=["POST"])
+@login_required
+@require_permission("users.write")
+def reset_user_password(user_id):
+    data = request.get_json(silent=True) or {}
+    password = data.get("password") or ""
+    if len(password) < 8:
+        return api_error("BAD_REQUEST", "password must be 8+ characters.", 400)
+
+    db = get_db()
+    user = db.get(User, user_id)
+    if not user:
+        return api_error("NOT_FOUND", "User not found.", 404)
+
+    user.password_hash = generate_password_hash(password)
+    db.commit()
+    revoke_all_tokens_for_user(db, user.id)
+    return jsonify({"status": "password_reset", "id": user.id})
 
 
 # --- INGEST KEY MANAGEMENT (admin only) ---
@@ -643,7 +807,7 @@ def deactivate_user(user_id):
 # pushing logs in — separate from user login since the sender isn't a person.
 @app.route("/api/admin/ingest_keys", methods=["GET"])
 @login_required
-@role_required("admin")
+@require_permission("ingest_keys.read")
 def list_ingest_keys():
     db = get_db()
     keys = db.query(IngestKey).order_by(IngestKey.id).all()
@@ -664,13 +828,13 @@ def list_ingest_keys():
 
 @app.route("/api/admin/ingest_keys", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("ingest_keys.write")
 def create_ingest_key_route():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     source = (data.get("source") or "external").strip()
     if not name:
-        return jsonify({"error": "name is required"}), 400
+        return api_error("BAD_REQUEST", "name is required.", 400)
     db = get_db()
     entry = create_ingest_key(db, name=name, source=source, org_id=g.current_user.org_id)
     return jsonify({
@@ -681,11 +845,11 @@ def create_ingest_key_route():
 
 @app.route("/api/admin/ingest_keys/<int:key_id>/revoke", methods=["POST"])
 @login_required
-@role_required("admin")
+@require_permission("ingest_keys.write")
 def revoke_ingest_key_route(key_id):
     db = get_db()
     if not revoke_ingest_key(db, key_id):
-        return jsonify({"error": "Key not found"}), 404
+        return api_error("NOT_FOUND", "Key not found.", 404)
     return jsonify({"status": "revoked", "id": key_id})
 
 
@@ -727,7 +891,7 @@ def ingest_vercel():
 
 @app.route("/api/ingest/manual", methods=["POST"])
 @login_required
-@role_required("analyst")
+@require_permission("events.write")
 def ingest_manual():
     """For pasting logs directly in the UI. Accepts either:
       - {"logs": [...]} / a raw JSON array of structured log objects, or
@@ -755,10 +919,10 @@ def ingest_manual():
 # unless debug mode is on — this must never be reachable in a real deployment.
 @app.route("/api/debug/trigger_alert")
 @login_required
-@role_required("admin")
+@require_permission("system.write")
 def trigger_alert():
     if os.environ.get("TH_ENABLE_DEBUG_ROUTES", "false").lower() != "true":
-        return jsonify({"error": "Debug routes disabled"}), 404
+        return api_error("NOT_FOUND", "Debug routes disabled.", 404)
     db = get_db()
     ts = datetime.utcnow()
     new_event = Event(timestamp=ts, host="WIN-SRV-01", process="malware.exe", commandline="C2-Beacon")
@@ -769,6 +933,18 @@ def trigger_alert():
     db.commit()
     broadcast_new_alert(new_alert)
     return jsonify({"status": "broadcasted"})
+
+# Register enterprise SOC routes (cases, assets, IOC, audit, webscan, ingestion, …)
+register_enterprise_routes(
+    app,
+    login_required=login_required,
+    require_permission=require_permission,
+    broadcast_new_alert=broadcast_new_alert,
+)
+
+# Start background log tailer (offset-tracked via IngestionState).
+start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))
+
 
 if __name__ == "__main__":
     # Default to localhost so Windows Firewall does not require "Private network"

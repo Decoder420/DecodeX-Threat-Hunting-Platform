@@ -11,20 +11,18 @@ This project provides a practical, hands-on tool for learning about security ope
 
 ## ✨ Features
 
-- **Multi-Source Log Ingestion**: Ingest logs from local files and live webhook streams (e.g., from cloud providers).
-- **Persistent Storage**: Uses SQLite to store events, alerts, IOCs, and case data.
-- **Rule-Based Detection**: Employs a flexible YAML-based rule engine for creating custom detections.
-- **YARA Scanning**: Scans log data with YARA rules for pattern matching.
-- **IOC Matching**: Correlates events against a watchlist of Indicators of Compromise (IPs, domains, hashes).
-- **Threat Intelligence Feeds**: Syncs with external threat intel feeds to keep IOCs current.
-- **Sigma Rule Importer**: Converts community-standard Sigma rules into the local format.
-- **MITRE ATT&CK Mapping**: Enriches alerts with ATT&CK tactics and techniques for better context.
-- **Interactive SOC Dashboard**: A React-based frontend for viewing alerts, managing cases, and visualizing data.
-- **Alert Investigation & Case Management**: Track alert status (`Open`, `In Progress`, `Resolved`), assign analysts, and add notes.
-- **User Authentication**: Secure login system with hashed passwords and role-based access (`admin`, `analyst`).
-- **Live Updates**: Uses WebSockets to push new alerts and updates to the dashboard in real-time.
-- **Admin Panel**: Manage users, threat intelligence feeds, and suppression rules.
-- **PDF Reporting**: Generate PDF incident reports directly from an alert.
+- **Auth + RBAC**: Username/password login, hashed passwords, session tokens, explicit permissions (`admin` / `analyst` / `viewer`).
+- **Role-specific UI**: Sidebar navigation with ProtectedRoute gates (dashboard, alerts, hunting, cases, intelligence, webscan, reports, admin).
+- **Real-time log ingestion**: Background watcher tails `backend/data/logs/` with offset tracking.
+- **Detection engine**: YAML rules, IOC matching, YARA, MITRE ATT&CK mapping, risk scoring, alert correlation.
+- **Cases & incidents**: Create cases from alerts; correlated incident timelines.
+- **Assets & TI**: Asset inventory + enriched IOC store / feed sync.
+- **Audit logging**: Append-only audit trail for login, RBAC, SOAR, scans.
+- **Authorized web scanner**: Safe TLS/header/cookie checks on AUTHORIZED targets only.
+- **SOAR (simulation)**: Permissioned simulated response actions with clear SIMULATION MODE labeling.
+- **Live Socket.IO alerts** and **PDF incident reports**.
+
+Detailed docs: [`docs/FULL_PLATFORM_REPORT.md`](./docs/FULL_PLATFORM_REPORT.md) · [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) · [`docs/API.md`](./docs/API.md) · [`docs/RBAC.md`](./docs/RBAC.md)
 
 ## 🏗️ Architecture
 

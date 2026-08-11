@@ -45,6 +45,9 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
         parsed_time = datetime.fromisoformat(timestamp_text.replace("Z", "+00:00"))
     except ValueError:
         parsed_time = datetime.fromtimestamp(int(timestamp_text) / 1000.0, tz=timezone.utc)
+    # Store naive UTC for SQLite compatibility (avoid aware/naive compare errors).
+    if parsed_time.tzinfo is not None:
+        parsed_time = parsed_time.astimezone(timezone.utc).replace(tzinfo=None)
 
     host = record.get("host") or record.get("hostname") or source_name
     user = record.get("user") or record.get("service") or ""
@@ -54,6 +57,13 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
     domain = record.get("domain") or record.get("request_host") or ""
     file_hash = record.get("file_hash") or record.get("hash") or ""
     raw_payload = json.dumps(record, ensure_ascii=True)
+    event_type = str(record.get("event_type") or record.get("source_type") or source_type or "")
+    destination_ip = str(record.get("destination_ip") or record.get("dest_ip") or "")
+    destination_port = str(record.get("destination_port") or record.get("dest_port") or "")
+    url = str(record.get("url") or "")
+    parent_process = str(record.get("parent_process") or record.get("parent") or "")
+    pid = str(record.get("pid") or "")
+    ppid = str(record.get("ppid") or "")
 
     event = Event(
         timestamp=parsed_time,
@@ -67,6 +77,14 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
         source_type=source_type,
         source_name=source_name,
         raw_payload=raw_payload,
+        event_type=event_type,
+        ingested_at=utcnow(),
+        destination_ip=destination_ip,
+        destination_port=destination_port,
+        url=url,
+        parent_process=parent_process,
+        pid=pid,
+        ppid=ppid,
     )
 
     yara_matches = scanner.scan_log(raw_payload)
@@ -221,6 +239,14 @@ def ingest_logs(db, sources: Iterable[dict] | None = None) -> tuple[int, int, li
 
             state.offset = handle.tell()
             state.updated_at = utcnow()
+            state.source_type = source.get("source_type") or state.source_type or "endpoint"
+            state.status = "active"
+            state.last_error = ""
+            # Count events for this source (lightweight approximate bump for this cycle)
+            cycle_added = sum(1 for e in new_events if e.source_name == source["source_name"])
+            state.event_count = (state.event_count or 0) + cycle_added
+            if cycle_added:
+                state.last_event_at = utcnow()
 
     db.commit()
     return added, skipped, new_events
@@ -243,10 +269,17 @@ def persist_alerts(db, alerts: Iterable[dict], broadcast_fn=None) -> int:
                 existing.suppression_reason = alert.get("suppression_reason", "")
             continue
 
+        severity = str(alert.get("severity") or "medium").upper()
+        if severity not in {"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+            severity = severity.capitalize()  # keep legacy casing if unexpected
+            severity_map = {"Info": "INFO", "Low": "LOW", "Medium": "MEDIUM", "High": "HIGH", "Critical": "CRITICAL"}
+            severity = severity_map.get(severity, str(alert.get("severity") or "MEDIUM").upper())
+
         new_alert = Alert(
             rule_id=alert["id"],
-            severity=alert["severity"],
+            severity=severity,
             description=alert["description"],
+            title=alert.get("title") or alert.get("description") or alert["id"],
             tactic=alert.get("tactic", ""),
             technique_id=alert.get("technique_id", ""),
             technique_name=alert.get("technique_name", ""),
@@ -263,6 +296,8 @@ def persist_alerts(db, alerts: Iterable[dict], broadcast_fn=None) -> int:
             is_suppressed=alert.get("is_suppressed", False),
             suppression_reason=alert.get("suppression_reason", ""),
             event_timestamp=alert["timestamp"],
+            risk_score=int(alert.get("risk_score") or 0),
+            confidence=int(alert.get("confidence") or 70),
         )
         db.add(new_alert)
         created_alerts.append(new_alert)

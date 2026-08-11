@@ -46,7 +46,8 @@ _db_initialized = False
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    # Naive UTC — SQLite + SQLAlchemy comparisons stay consistent.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Event(Base):
@@ -78,6 +79,14 @@ class Event(Base):
     source_type = Column(String, nullable=False, default="endpoint")
     source_name = Column(String, nullable=False, default="sample.log")
     raw_payload = Column(Text, nullable=False, default="")
+    event_type = Column(String, nullable=False, default="")
+    ingested_at = Column(DateTime, nullable=False, default=utcnow)
+    destination_ip = Column(String, nullable=False, default="")
+    destination_port = Column(String, nullable=False, default="")
+    url = Column(String, nullable=False, default="")
+    parent_process = Column(String, nullable=False, default="")
+    pid = Column(String, nullable=False, default="")
+    ppid = Column(String, nullable=False, default="")
 
 
 class IOC(Base):
@@ -90,6 +99,11 @@ class IOC(Base):
     source = Column(String, nullable=False, default="manual")
     first_seen = Column(DateTime, nullable=False, default=utcnow)
     last_seen = Column(DateTime, nullable=False, default=utcnow)
+    confidence = Column(Integer, nullable=False, default=70)
+    malicious = Column(Boolean, nullable=False, default=True)
+    tags = Column(String, nullable=False, default="")
+    expires_at = Column(DateTime, nullable=True)
+    metadata_json = Column(Text, nullable=False, default="")
 
 
 class User(Base):
@@ -108,9 +122,92 @@ class User(Base):
     org_id = Column(String, nullable=False, default="default")
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
+    last_login = Column(DateTime, nullable=True)
 
 
 ROLE_RANK = {"viewer": 1, "analyst": 2, "admin": 3}
+
+# Explicit permissions used by @require_permission. Roles stay on User.role;
+# this map is the source of truth for what each role may do.
+ROLE_PERMISSIONS = {
+    "admin": frozenset({
+        "users.read", "users.write",
+        "roles.read", "roles.write",
+        "alerts.read", "alerts.write",
+        "events.read", "events.write",
+        "rules.read", "rules.write",
+        "yara.read", "yara.write",
+        "sigma.read", "sigma.write",
+        "feeds.read", "feeds.write",
+        "suppressions.read", "suppressions.write",
+        "cases.read", "cases.write",
+        "ioc.read", "ioc.write",
+        "assets.read", "assets.write",
+        "webscan.read", "webscan.run",
+        "soar.execute",
+        "reports.read",
+        "audit.read",
+        "system.read", "system.write",
+        "dashboard.read",
+        "ingest_keys.read", "ingest_keys.write",
+    }),
+    "analyst": frozenset({
+        "alerts.read", "alerts.write",
+        "events.read", "events.write",
+        "rules.read",
+        "yara.read",
+        "sigma.read",
+        "feeds.read",
+        "suppressions.read", "suppressions.write",
+        "cases.read", "cases.write",
+        "ioc.read", "ioc.write",
+        "assets.read",
+        "webscan.read", "webscan.run",
+        "soar.execute",
+        "reports.read",
+        "dashboard.read",
+    }),
+    "viewer": frozenset({
+        "alerts.read",
+        "events.read",
+        "ioc.read",
+        "assets.read",
+        "reports.read",
+        "dashboard.read",
+    }),
+}
+
+
+def permissions_for_role(role: str) -> list[str]:
+    """Return sorted permission strings for a role (empty if unknown)."""
+    return sorted(ROLE_PERMISSIONS.get(role or "", frozenset()))
+
+
+def user_has_permission(user: "User", permission: str) -> bool:
+    if not user or not user.is_active:
+        return False
+    return permission in ROLE_PERMISSIONS.get(user.role, frozenset())
+
+
+def count_active_admins(db, *, exclude_user_id: int | None = None) -> int:
+    query = db.query(User).filter_by(role="admin", is_active=True)
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    return query.count()
+
+
+def serialize_user(user: "User") -> dict:
+    """Canonical user payload for login / me / admin listings."""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "permissions": permissions_for_role(user.role),
+        "is_active": bool(user.is_active),
+        "org_id": user.org_id,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
+    }
 
 
 class AuthToken(Base):
@@ -175,6 +272,10 @@ class Alert(Base):
     suppression_reason = Column(String, nullable=False, default="")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     event_timestamp = Column(DateTime, nullable=False)
+    risk_score = Column(Integer, nullable=False, default=0)
+    confidence = Column(Integer, nullable=False, default=70)
+    case_id = Column(Integer, nullable=True)
+    title = Column(String, nullable=False, default="")
 
 
 class SuppressionRule(Base):
@@ -210,6 +311,158 @@ class IngestionState(Base):
     source = Column(String, nullable=False)
     offset = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime, nullable=False, default=utcnow)
+    source_type = Column(String, nullable=False, default="endpoint")
+    enabled = Column(Boolean, nullable=False, default=True)
+    status = Column(String, nullable=False, default="idle")
+    last_error = Column(String, nullable=False, default="")
+    event_count = Column(Integer, nullable=False, default=0)
+    last_event_at = Column(DateTime, nullable=True)
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+    __table_args__ = (UniqueConstraint("hostname", name="uq_assets_hostname"),)
+
+    id = Column(Integer, primary_key=True)
+    hostname = Column(String, nullable=False)
+    ip = Column(String, nullable=False, default="")
+    asset_type = Column(String, nullable=False, default="OTHER")
+    operating_system = Column(String, nullable=False, default="")
+    criticality = Column(String, nullable=False, default="MEDIUM")
+    owner = Column(String, nullable=False, default="")
+    environment = Column(String, nullable=False, default="lab")
+    description = Column(String, nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_seen = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class Case(Base):
+    __tablename__ = "cases"
+
+    id = Column(Integer, primary_key=True)
+    case_number = Column(String, nullable=False, unique=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    severity = Column(String, nullable=False, default="MEDIUM")
+    status = Column(String, nullable=False, default="OPEN")
+    assigned_to = Column(String, nullable=False, default="")
+    created_by = Column(String, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    risk_score = Column(Integer, nullable=False, default=0)
+
+
+class CaseNote(Base):
+    __tablename__ = "case_notes"
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(Integer, nullable=False, index=True)
+    author = Column(String, nullable=False, default="")
+    body = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class CaseAlert(Base):
+    __tablename__ = "case_alerts"
+    __table_args__ = (UniqueConstraint("case_id", "alert_id", name="uq_case_alert"),)
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(Integer, nullable=False, index=True)
+    alert_id = Column(Integer, nullable=False, index=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, default=utcnow)
+    user_id = Column(Integer, nullable=True)
+    username = Column(String, nullable=False, default="")
+    action = Column(String, nullable=False)
+    resource_type = Column(String, nullable=False, default="")
+    resource_id = Column(String, nullable=False, default="")
+    source_ip = Column(String, nullable=False, default="")
+    details = Column(Text, nullable=False, default="")
+    success = Column(Boolean, nullable=False, default=True)
+
+
+class CorrelatedIncident(Base):
+    __tablename__ = "correlated_incidents"
+
+    id = Column(Integer, primary_key=True)
+    case_number = Column(String, nullable=False, unique=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    severity = Column(String, nullable=False, default="MEDIUM")
+    risk_score = Column(Integer, nullable=False, default=0)
+    status = Column(String, nullable=False, default="OPEN")
+    host = Column(String, nullable=False, default="")
+    user = Column(String, nullable=False, default="")
+    source_ip = Column(String, nullable=False, default="")
+    tactic = Column(String, nullable=False, default="")
+    technique_id = Column(String, nullable=False, default="")
+    alert_count = Column(Integer, nullable=False, default=0)
+    case_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class IncidentAlert(Base):
+    __tablename__ = "incident_alerts"
+    __table_args__ = (UniqueConstraint("incident_id", "alert_id", name="uq_incident_alert"),)
+
+    id = Column(Integer, primary_key=True)
+    incident_id = Column(Integer, nullable=False, index=True)
+    alert_id = Column(Integer, nullable=False, index=True)
+
+
+class WebTarget(Base):
+    __tablename__ = "web_targets"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    owner = Column(String, nullable=False, default="")
+    authorization_status = Column(String, nullable=False, default="PENDING")
+    scope = Column(String, nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_by = Column(String, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    last_scan = Column(DateTime, nullable=True)
+    last_status = Column(String, nullable=False, default="")
+
+
+class WebScan(Base):
+    __tablename__ = "web_scans"
+
+    id = Column(Integer, primary_key=True)
+    target_id = Column(Integer, nullable=False, index=True)
+    status = Column(String, nullable=False, default="PENDING")
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    findings_count = Column(Integer, nullable=False, default=0)
+    high_count = Column(Integer, nullable=False, default=0)
+    created_by = Column(String, nullable=False, default="")
+
+
+class WebFinding(Base):
+    __tablename__ = "web_findings"
+
+    id = Column(Integer, primary_key=True)
+    target_id = Column(Integer, nullable=False, index=True)
+    scan_id = Column(Integer, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    severity = Column(String, nullable=False, default="INFO")
+    confidence = Column(Integer, nullable=False, default=70)
+    category = Column(String, nullable=False, default="")
+    evidence = Column(Text, nullable=False, default="")
+    recommendation = Column(Text, nullable=False, default="")
+    url = Column(String, nullable=False, default="")
+    risk_score = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 def _column_names(table_name: str) -> set[str]:
@@ -229,18 +482,34 @@ def _ensure_legacy_sqlite_columns() -> None:
 
     with engine.begin() as connection:
         if inspect(engine).has_table("events"):
-            _add_column_if_missing(connection, "events", "domain", "ALTER TABLE events ADD COLUMN domain VARCHAR NOT NULL DEFAULT ''")
-            _add_column_if_missing(connection, "events", "file_hash", "ALTER TABLE events ADD COLUMN file_hash VARCHAR NOT NULL DEFAULT ''")
-            _add_column_if_missing(connection, "events", "source_type", "ALTER TABLE events ADD COLUMN source_type VARCHAR NOT NULL DEFAULT 'endpoint'")
-            _add_column_if_missing(connection, "events", "source_name", "ALTER TABLE events ADD COLUMN source_name VARCHAR NOT NULL DEFAULT 'sample.log'")
-            _add_column_if_missing(connection, "events", "raw_payload", "ALTER TABLE events ADD COLUMN raw_payload TEXT NOT NULL DEFAULT ''")
+            event_cols = {
+                "domain": "ALTER TABLE events ADD COLUMN domain VARCHAR NOT NULL DEFAULT ''",
+                "file_hash": "ALTER TABLE events ADD COLUMN file_hash VARCHAR NOT NULL DEFAULT ''",
+                "source_type": "ALTER TABLE events ADD COLUMN source_type VARCHAR NOT NULL DEFAULT 'endpoint'",
+                "source_name": "ALTER TABLE events ADD COLUMN source_name VARCHAR NOT NULL DEFAULT 'sample.log'",
+                "raw_payload": "ALTER TABLE events ADD COLUMN raw_payload TEXT NOT NULL DEFAULT ''",
+                "event_type": "ALTER TABLE events ADD COLUMN event_type VARCHAR NOT NULL DEFAULT ''",
+                "ingested_at": "ALTER TABLE events ADD COLUMN ingested_at DATETIME",
+                "destination_ip": "ALTER TABLE events ADD COLUMN destination_ip VARCHAR NOT NULL DEFAULT ''",
+                "destination_port": "ALTER TABLE events ADD COLUMN destination_port VARCHAR NOT NULL DEFAULT ''",
+                "url": "ALTER TABLE events ADD COLUMN url VARCHAR NOT NULL DEFAULT ''",
+                "parent_process": "ALTER TABLE events ADD COLUMN parent_process VARCHAR NOT NULL DEFAULT ''",
+                "pid": "ALTER TABLE events ADD COLUMN pid VARCHAR NOT NULL DEFAULT ''",
+                "ppid": "ALTER TABLE events ADD COLUMN ppid VARCHAR NOT NULL DEFAULT ''",
+            }
+            for column_name, ddl in event_cols.items():
+                _add_column_if_missing(connection, "events", column_name, ddl)
 
         if inspect(engine).has_table("iocs"):
             added_first = "first_seen" not in _column_names("iocs")
             added_last = "last_seen" not in _column_names("iocs")
             _add_column_if_missing(connection, "iocs", "first_seen", "ALTER TABLE iocs ADD COLUMN first_seen DATETIME")
             _add_column_if_missing(connection, "iocs", "last_seen", "ALTER TABLE iocs ADD COLUMN last_seen DATETIME")
-            # Only backfill when the column was just introduced.
+            _add_column_if_missing(connection, "iocs", "confidence", "ALTER TABLE iocs ADD COLUMN confidence INTEGER NOT NULL DEFAULT 70")
+            _add_column_if_missing(connection, "iocs", "malicious", "ALTER TABLE iocs ADD COLUMN malicious BOOLEAN NOT NULL DEFAULT 1")
+            _add_column_if_missing(connection, "iocs", "tags", "ALTER TABLE iocs ADD COLUMN tags VARCHAR NOT NULL DEFAULT ''")
+            _add_column_if_missing(connection, "iocs", "expires_at", "ALTER TABLE iocs ADD COLUMN expires_at DATETIME")
+            _add_column_if_missing(connection, "iocs", "metadata_json", "ALTER TABLE iocs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT ''")
             if added_first:
                 connection.execute(text("UPDATE iocs SET first_seen = CURRENT_TIMESTAMP WHERE first_seen IS NULL"))
             if added_last:
@@ -263,6 +532,10 @@ def _ensure_legacy_sqlite_columns() -> None:
                 "analyst_notes": "ALTER TABLE alerts ADD COLUMN analyst_notes TEXT NOT NULL DEFAULT ''",
                 "is_suppressed": "ALTER TABLE alerts ADD COLUMN is_suppressed BOOLEAN NOT NULL DEFAULT 0",
                 "suppression_reason": "ALTER TABLE alerts ADD COLUMN suppression_reason VARCHAR NOT NULL DEFAULT ''",
+                "risk_score": "ALTER TABLE alerts ADD COLUMN risk_score INTEGER NOT NULL DEFAULT 0",
+                "confidence": "ALTER TABLE alerts ADD COLUMN confidence INTEGER NOT NULL DEFAULT 70",
+                "case_id": "ALTER TABLE alerts ADD COLUMN case_id INTEGER",
+                "title": "ALTER TABLE alerts ADD COLUMN title VARCHAR NOT NULL DEFAULT ''",
             }
             existing_alert_cols = _column_names("alerts")
             for column_name, ddl in alert_columns.items():
@@ -275,6 +548,15 @@ def _ensure_legacy_sqlite_columns() -> None:
         if inspect(engine).has_table("users"):
             _add_column_if_missing(connection, "users", "org_id", "ALTER TABLE users ADD COLUMN org_id VARCHAR NOT NULL DEFAULT 'default'")
             _add_column_if_missing(connection, "users", "is_active", "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+            _add_column_if_missing(connection, "users", "last_login", "ALTER TABLE users ADD COLUMN last_login DATETIME")
+
+        if inspect(engine).has_table("ingestion_state"):
+            _add_column_if_missing(connection, "ingestion_state", "source_type", "ALTER TABLE ingestion_state ADD COLUMN source_type VARCHAR NOT NULL DEFAULT 'endpoint'")
+            _add_column_if_missing(connection, "ingestion_state", "enabled", "ALTER TABLE ingestion_state ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1")
+            _add_column_if_missing(connection, "ingestion_state", "status", "ALTER TABLE ingestion_state ADD COLUMN status VARCHAR NOT NULL DEFAULT 'idle'")
+            _add_column_if_missing(connection, "ingestion_state", "last_error", "ALTER TABLE ingestion_state ADD COLUMN last_error VARCHAR NOT NULL DEFAULT ''")
+            _add_column_if_missing(connection, "ingestion_state", "event_count", "ALTER TABLE ingestion_state ADD COLUMN event_count INTEGER NOT NULL DEFAULT 0")
+            _add_column_if_missing(connection, "ingestion_state", "last_event_at", "ALTER TABLE ingestion_state ADD COLUMN last_event_at DATETIME")
 
 
 def _ensure_role_user(db, *, username: str, password: str | None, role: str, allow_generated: bool = False) -> None:
@@ -377,6 +659,19 @@ def _seed_defaults(db) -> None:
             current.url = feed["url"]
             current.ioc_type = feed["ioc_type"]
             current.last_error = ""
+
+    demo_assets = [
+        {"hostname": "DC-01", "ip": "10.0.0.10", "asset_type": "DOMAIN_CONTROLLER", "criticality": "CRITICAL", "operating_system": "Windows Server", "owner": "IT"},
+        {"hostname": "WEB-01", "ip": "10.0.0.20", "asset_type": "WEB_SERVER", "criticality": "HIGH", "operating_system": "Linux", "owner": "AppSec"},
+        {"hostname": "PC-01", "ip": "192.168.1.10", "asset_type": "WORKSTATION", "criticality": "MEDIUM", "operating_system": "Windows 11", "owner": "admin"},
+        {"hostname": "PC-02", "ip": "192.168.1.11", "asset_type": "WORKSTATION", "criticality": "MEDIUM", "operating_system": "Windows 11", "owner": "user"},
+        {"hostname": "DB-01", "ip": "10.0.0.30", "asset_type": "DATABASE", "criticality": "HIGH", "operating_system": "Linux", "owner": "DBA"},
+        {"hostname": "PC-03", "ip": "192.168.1.12", "asset_type": "WORKSTATION", "criticality": "LOW", "operating_system": "Windows 10", "owner": "user"},
+        {"hostname": "FW-01", "ip": "10.0.0.1", "asset_type": "FIREWALL", "criticality": "CRITICAL", "operating_system": "Appliance", "owner": "Network"},
+    ]
+    for asset in demo_assets:
+        if not db.query(Asset).filter_by(hostname=asset["hostname"]).first():
+            db.add(Asset(**asset, environment="lab", description="Demo/sample asset"))
 
     db.commit()
 
