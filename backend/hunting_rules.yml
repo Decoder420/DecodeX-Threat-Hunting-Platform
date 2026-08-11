@@ -113,3 +113,33 @@ rules:
     - type: event_field_contains
       field: commandline
       value: schtasks
+
+# 🚨 11. Encoded PowerShell (-enc)
+- id: encoded_powershell
+  severity: high
+  description: Possible encoded PowerShell execution
+  technique_id: T1059.001
+  technique_name: "Command and Scripting Interpreter: PowerShell"
+  tactic: Execution
+  conditions:
+    - type: event_field_contains
+      field: process
+      value: powershell
+    - type: event_field_contains
+      field: commandline
+      value: "-enc"
+
+# 🚨 12. Hidden PowerShell Window
+- id: hidden_powershell
+  severity: medium
+  description: Hidden PowerShell window execution
+  technique_id: T1059.001
+  technique_name: "Command and Scripting Interpreter: PowerShell"
+  tactic: Execution
+  conditions:
+    - type: event_field_contains
+      field: process
+      value: powershell
+    - type: event_field_contains
+      field: commandline
+      value: "-w hidden"

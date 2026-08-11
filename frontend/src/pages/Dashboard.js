@@ -61,6 +61,12 @@ import "prismjs/components/prism-clike";
 import "prismjs/themes/prism-tomorrow.css";
 
 import axios from "axios";
+import {
+    canAccessAdminPanel,
+    getStoredToken,
+    getStoredUser,
+    hasPermission,
+} from "../auth";
 
 /* ============================================================
    BACKEND
@@ -96,22 +102,25 @@ const CHART_COLORS = [
 ];
 
 const getAuthHeaders = () => ({
-    Authorization: `Bearer ${
-        localStorage.getItem("token") || ""
-    }`,
+    Authorization: `Bearer ${getStoredToken()}`,
 });
 
 /* ============================================================
    COMPONENT
    ============================================================ */
 
-export default function Dashboard({ onLogout }) {
+export default function Dashboard({ onLogout, currentUser, embedded = false, initialView = "dashboard" }) {
     const revealRootRef = useRef(null);
+    const sessionUser = currentUser || getStoredUser();
     const [data, setData] = useState(null);
     const [adminData, setAdminData] = useState(null);
 
     const [currentView, setCurrentView] =
-    useState("dashboard");
+    useState(initialView || "dashboard");
+
+    const canWriteAlerts = hasPermission("alerts.write", sessionUser);
+    const canExecuteSoar = hasPermission("soar.execute", sessionUser);
+    const canManageAdmin = canAccessAdminPanel(sessionUser);
 
     useGsapReveal(revealRootRef, [currentView, data]);
 
@@ -181,6 +190,11 @@ export default function Dashboard({ onLogout }) {
        ======================================================== */
 
     const refreshAdmin = useCallback(async() => {
+        if (!canAccessAdminPanel(getStoredUser())) {
+            setAdminData(null);
+            setRulesList([]);
+            return;
+        }
         try {
             const adminResponse =
                 await getAdminData();
@@ -197,6 +211,8 @@ export default function Dashboard({ onLogout }) {
                 "Admin Sync Error:",
                 error
             );
+            // Empty object marks "loaded" so Admin Console is not stuck on the splash loader.
+            setAdminData({});
         }
     }, []);
 
@@ -205,15 +221,22 @@ export default function Dashboard({ onLogout }) {
        ======================================================== */
 
     useEffect(() => {
+        setCurrentView(initialView || "dashboard");
+    }, [initialView]);
+
+    useEffect(() => {
         if (currentView === "dashboard") {
             refreshDashboard();
-        } else {
+        } else if (canManageAdmin) {
             refreshAdmin();
+        } else {
+            setCurrentView("dashboard");
         }
     }, [
         currentView,
         refreshDashboard,
         refreshAdmin,
+        canManageAdmin,
     ]);
 
     /* ========================================================
@@ -780,10 +803,7 @@ export default function Dashboard({ onLogout }) {
 
     const downloadPDF =
         (id) => {
-            const token =
-                localStorage.getItem(
-                    "token"
-                );
+            const token = getStoredToken();
 
             const url =
                 `${BACKEND_URL}/api/report/${id}?token=${encodeURIComponent(
@@ -801,13 +821,21 @@ export default function Dashboard({ onLogout }) {
        LOADING
        ======================================================== */
 
-    if (!data) {
+    // Dashboard view needs /api/dashboard payload. Admin console only needs adminData —
+    // previously !data blocked /admin/console forever because dashboard was never fetched.
+    const waitingDashboard = currentView === "dashboard" && !data;
+    const waitingAdmin =
+        currentView === "admin" && canManageAdmin && adminData === null;
+
+    if (waitingDashboard || waitingAdmin) {
         return (
             <div className="loader-screen">
                 <div>
                     <div className="loader-orb" aria-hidden />
                     <div style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem" }}>
-                        Initializing SOC Environment
+                        {currentView === "admin"
+                            ? "Loading Admin Console"
+                            : "Initializing SOC Environment"}
                     </div>
                     <div style={{ marginTop: 10, color: "var(--text-muted)", fontSize: 13 }}>
                         Connecting to {BACKEND_URL}
@@ -823,13 +851,16 @@ export default function Dashboard({ onLogout }) {
 
     return (
         <div className="soc-shell" ref={revealRootRef}>
+        {!embedded ? (
         <Navbar
             onNavigate={setCurrentView}
             onLogout={onLogout}
             currentView={currentView}
+            currentUser={sessionUser}
         />
+        ) : null}
 
-        <main className="soc-main">
+        <main className={embedded ? "soc-main soc-main--embedded" : "soc-main"}>
             {currentView === "dashboard" ? (
                 <>
                 { /* SEARCH */ }
@@ -1300,9 +1331,11 @@ export default function Dashboard({ onLogout }) {
                             table for rule matching (`ioc_ip_match`,
                             `ioc_domain_match`, `ioc_hash_match`).
                         </div>
+                        {hasPermission("ioc.write", sessionUser) ? (
                         <Button variant="primary" size="sm" onClick={handleSyncFeeds}>
                             Sync Live Feeds
                         </Button>
+                        ) : null}
                     </div>
 
                     <div className="alerts-table">
@@ -1437,6 +1470,8 @@ export default function Dashboard({ onLogout }) {
                     activeHostIsolated={activeHostIsolated}
                     executeSOAR={executeSOAR}
                     downloadPDF={downloadPDF}
+                    canWriteAlerts={canWriteAlerts}
+                    canExecuteSoar={canExecuteSoar}
                     onCaseUpdated={(updated) => {
                         setSlideContext((prev) =>
                             prev
@@ -1858,6 +1893,8 @@ function IncidentPanel({
     activeHostIsolated,
     executeSOAR,
     downloadPDF,
+    canWriteAlerts = false,
+    canExecuteSoar = false,
     onCaseUpdated,
     onClose,
 }) {
@@ -1914,8 +1951,14 @@ function IncidentPanel({
             setCaseMessage("Case updated successfully.");
         } catch (error) {
             console.error("Case update failed:", error);
+            const errBody =
+                error.response && error.response.data && error.response.data.error;
+            const errMsg =
+                typeof errBody === "object" && errBody
+                    ? errBody.message
+                    : errBody;
             setCaseMessage(
-                (error.response && error.response.data && error.response.data.error) ||
+                errMsg ||
                     "Unable to update case. Analyst role or higher required."
             );
         } finally {
@@ -1961,6 +2004,7 @@ function IncidentPanel({
         </button>
         </div>
 
+        {canWriteAlerts ? (
         <div className="case-controls">
             <label className="field" style={{ marginBottom: 0 }}>
                 <span className="field__label">Case Status</span>
@@ -2015,63 +2059,37 @@ function IncidentPanel({
                 </div>
             ) : null}
         </div>
+        ) : (
+            <div className="case-controls__hint" style={{ marginTop: 16 }}>
+                Read-only access — case updates require analyst or admin.
+            </div>
+        )}
 
-        <
-        div style = {
-            {
-                marginTop: "25px",
-            }
-        } >
-        <
-        h3 >
-        Active Response(SOAR) </h3>
+        {canExecuteSoar ? (
+        <div style={{ marginTop: "25px" }}>
+        <h3>Active Response (SOAR) — SIMULATION MODE</h3>
 
-        <
-        div style = {
-            {
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
-            }
-        } >
-        <
-        button disabled = {
-            activeHostIsolated
-        }
-        onClick = {
-            () =>
-            executeSOAR(
-                "Isolate Host"
-            )
-        }
-        style = {
-            {
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <button
+            disabled={activeHostIsolated}
+            onClick={() => executeSOAR("Isolate Host")}
+            style={{
                 ...soarButton,
-                background:
-                    activeHostIsolated ?
-                    "#7f1d1d" :
-                    "#b91c1c",
-            }
-        } > {
-            activeHostIsolated ?
-            "Host Isolated" : "Isolate Host"
-        } </button>
+                background: activeHostIsolated ? "#7f1d1d" : "#b91c1c",
+            }}
+        >
+            {activeHostIsolated ? "Host Isolated" : "Isolate Host"}
+        </button>
 
-        <
-        button onClick = {
-            () =>
-            executeSOAR(
-                "Block IP"
-            )
-        }
-        style = {
-            {
-                ...soarButton,
-                background:
-                    "#ea580c",
-            }
-        } >
-        Block IP </button> </div> </div>
+        <button
+            onClick={() => executeSOAR("Block IP")}
+            style={{ ...soarButton, background: "#ea580c" }}
+        >
+            Block IP
+        </button>
+        </div>
+        </div>
+        ) : null}
 
         <
         div style = {

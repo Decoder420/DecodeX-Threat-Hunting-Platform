@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearSession, getStoredToken } from "./auth";
 
 const API_BASE_URL =
   process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:5000";
@@ -13,7 +14,7 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
+    const token = getStoredToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -33,13 +34,19 @@ api.interceptors.response.use(
       url.includes("/auth/login") || url.includes("/auth/logout");
 
     if (status === 401 && !isAuthEndpoint) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
+      clearSession();
       window.location.reload();
     }
     return Promise.reject(error);
   }
 );
+
+export const login = (username, password) =>
+  api.post("/auth/login", { username, password });
+
+export const logout = () => api.post("/auth/logout", {});
+
+export const getMe = () => api.get("/auth/me");
 
 export const getDashboard = (range = "24h") =>
   api.get("/dashboard", {
@@ -49,14 +56,12 @@ export const getDashboard = (range = "24h") =>
 export const getAlertContext = (alertId) =>
   api.get(`/alert_context/${alertId}`);
 
-export const getAdminData = () =>
-  api.get("/admin/data");
+export const getAdminData = () => api.get("/admin/data");
 
 export const toggleFeed = (feedId) =>
   api.post(`/admin/feed/${feedId}/toggle`);
 
-export const listYaraRules = () =>
-  api.get("/admin/rules");
+export const listYaraRules = () => api.get("/admin/rules");
 
 export const getRuleContent = (file) =>
   api.get("/admin/rules/content", {
@@ -90,8 +95,7 @@ export const addSuppression = (indicator) =>
     indicator,
   });
 
-export const syncFeeds = () =>
-  api.post("/admin/feeds/sync");
+export const syncFeeds = () => api.post("/admin/feeds/sync");
 
 export const executeSoarAction = (action, target) =>
   api.post("/soar/action", {
@@ -102,4 +106,21 @@ export const executeSoarAction = (action, target) =>
 export const updateAlertCase = (alertId, payload) =>
   api.post(`/alerts/${alertId}/case`, payload);
 
+export const listUsers = () => api.get("/admin/users");
+
+export const createUser = (payload) => api.post("/admin/users", payload);
+
+export const updateUserRole = (userId, role) =>
+  api.post(`/admin/users/${userId}/role`, { role });
+
+export const deactivateUser = (userId) =>
+  api.post(`/admin/users/${userId}/deactivate`);
+
+export const activateUser = (userId) =>
+  api.post(`/admin/users/${userId}/activate`);
+
+export const resetUserPassword = (userId, password) =>
+  api.post(`/admin/users/${userId}/reset_password`, { password });
+
+export { API_BASE_URL };
 export default api;
