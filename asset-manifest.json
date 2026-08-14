@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/Threat-Hunting-Platform/static/css/main.68b8e5b2.css",
+    "main.js": "/Threat-Hunting-Platform/static/js/main.d5409173.js",
+    "static/js/453.d5d0486c.chunk.js": "/Threat-Hunting-Platform/static/js/453.d5d0486c.chunk.js",
+    "index.html": "/Threat-Hunting-Platform/index.html",
+    "main.68b8e5b2.css.map": "/Threat-Hunting-Platform/static/css/main.68b8e5b2.css.map",
+    "main.d5409173.js.map": "/Threat-Hunting-Platform/static/js/main.d5409173.js.map",
+    "453.d5d0486c.chunk.js.map": "/Threat-Hunting-Platform/static/js/453.d5d0486c.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.68b8e5b2.css",
+    "static/js/main.d5409173.js"
+  ]
+}
