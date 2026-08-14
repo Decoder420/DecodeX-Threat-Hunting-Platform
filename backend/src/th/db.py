@@ -463,6 +463,12 @@ class WebScan(Base):
     configuration_json = Column(Text, nullable=False, default="")
     ports_json = Column(Text, nullable=False, default="")
     technologies_json = Column(Text, nullable=False, default="")
+    nodes_count = Column(Integer, nullable=False, default=0)
+    requests_used = Column(Integer, nullable=False, default=0)
+    request_budget = Column(Integer, nullable=False, default=0)
+    completed_stages = Column(Text, nullable=False, default="")  # JSON list
+    safety_mode = Column(String, nullable=False, default="production")  # production|lab
+    interrupted = Column(Boolean, nullable=False, default=False)
 
 
 class WebFinding(Base):
@@ -500,6 +506,57 @@ class WebFinding(Base):
     occurrence_count = Column(Integer, nullable=False, default=1)
     case_id = Column(Integer, nullable=True)
     risk_factors_json = Column(Text, nullable=False, default="")
+    node_id = Column(Integer, nullable=True, index=True)
+    alert_id = Column(Integer, nullable=True)
+
+
+class WebScanNode(Base):
+    """Attack-surface tree node discovered during a web scan."""
+
+    __tablename__ = "web_scan_nodes"
+
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(Integer, nullable=False, index=True)
+    target_id = Column(Integer, nullable=False, index=True)
+    parent_id = Column(Integer, nullable=True, index=True)
+    node_key = Column(String, nullable=False, default="", index=True)
+    node_type = Column(String, nullable=False, default="url")  # domain|subdomain|port|path|endpoint|api|service|finding
+    label = Column(String, nullable=False, default="")
+    url = Column(String, nullable=False, default="")
+    hostname = Column(String, nullable=False, default="")
+    ip = Column(String, nullable=False, default="")
+    port = Column(Integer, nullable=True)
+    protocol = Column(String, nullable=False, default="")
+    http_status = Column(Integer, nullable=True)
+    title = Column(String, nullable=False, default="")
+    technology = Column(String, nullable=False, default="")
+    depth = Column(Integer, nullable=False, default=0)
+    severity = Column(String, nullable=False, default="INFO")  # max direct finding severity
+    descendant_severity = Column(String, nullable=False, default="")  # max among descendants
+    finding_count = Column(Integer, nullable=False, default=0)
+    descendant_finding_count = Column(Integer, nullable=False, default=0)
+    has_alert = Column(Boolean, nullable=False, default=False)
+    risk_score = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(Text, nullable=False, default="")
+    discovered_at = Column(DateTime, nullable=False, default=utcnow)
+    last_seen = Column(DateTime, nullable=False, default=utcnow)
+
+
+class WebScanEvent(Base):
+    """Persisted live scan activity events for replay and history."""
+
+    __tablename__ = "web_scan_events"
+
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(Integer, nullable=False, index=True)
+    target_id = Column(Integer, nullable=False, index=True)
+    event_type = Column(String, nullable=False, default="")
+    message = Column(String, nullable=False, default="")
+    severity = Column(String, nullable=False, default="INFO")
+    node_id = Column(Integer, nullable=True)
+    finding_id = Column(Integer, nullable=True)
+    payload_json = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 def _column_names(table_name: str) -> set[str]:
@@ -645,9 +702,23 @@ def _ensure_legacy_sqlite_columns() -> None:
                 "occurrence_count": "ALTER TABLE web_findings ADD COLUMN occurrence_count INTEGER NOT NULL DEFAULT 1",
                 "case_id": "ALTER TABLE web_findings ADD COLUMN case_id INTEGER",
                 "risk_factors_json": "ALTER TABLE web_findings ADD COLUMN risk_factors_json TEXT NOT NULL DEFAULT ''",
+                "node_id": "ALTER TABLE web_findings ADD COLUMN node_id INTEGER",
+                "alert_id": "ALTER TABLE web_findings ADD COLUMN alert_id INTEGER",
             }
             for column_name, ddl in finding_cols.items():
                 _add_column_if_missing(connection, "web_findings", column_name, ddl)
+
+        if inspect(engine).has_table("web_scans"):
+            extra_scan = {
+                "nodes_count": "ALTER TABLE web_scans ADD COLUMN nodes_count INTEGER NOT NULL DEFAULT 0",
+                "requests_used": "ALTER TABLE web_scans ADD COLUMN requests_used INTEGER NOT NULL DEFAULT 0",
+                "request_budget": "ALTER TABLE web_scans ADD COLUMN request_budget INTEGER NOT NULL DEFAULT 0",
+                "completed_stages": "ALTER TABLE web_scans ADD COLUMN completed_stages TEXT NOT NULL DEFAULT ''",
+                "safety_mode": "ALTER TABLE web_scans ADD COLUMN safety_mode VARCHAR NOT NULL DEFAULT 'production'",
+                "interrupted": "ALTER TABLE web_scans ADD COLUMN interrupted BOOLEAN NOT NULL DEFAULT 0",
+            }
+            for column_name, ddl in extra_scan.items():
+                _add_column_if_missing(connection, "web_scans", column_name, ddl)
 
 
 def _ensure_role_user(db, *, username: str, password: str | None, role: str, allow_generated: bool = False) -> None:

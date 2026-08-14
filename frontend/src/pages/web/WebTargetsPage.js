@@ -191,6 +191,12 @@ export default function WebTargetsPage() {
                         Scan
                       </Button>
                     ) : null}
+                    <Button
+                      size="sm"
+                      onClick={() => navigate(`/webscan/map/target/${t.id}`)}
+                    >
+                      Website Map
+                    </Button>
                     {canRun && t.enabled ? (
                       <Button size="sm" variant="danger" onClick={() => disable(t.id)}>
                         Disable

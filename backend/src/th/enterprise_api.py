@@ -22,6 +22,8 @@ from .db import (
     IngestionState,
     WebFinding,
     WebScan,
+    WebScanEvent,
+    WebScanNode,
     WebTarget,
     utcnow,
 )
@@ -38,8 +40,9 @@ from .pipeline import (
 )
 from .risk import compute_risk_score, risk_category
 from .rule_evaluator import RuleEvaluator
-from .web_scanner import cancel_scan, get_engine_status, start_scan_async
+from .web_scanner import cancel_scan, get_engine_status, resume_scan, start_scan_async
 from .web_scanner.config import SCAN_PROFILES, WEBSCAN_ALLOW_PRIVATE_TARGETS
+from .web_scanner.surface import build_tree_payload
 from .web_scanner.validators import SSRFError, validate_scan_url
 
 
@@ -87,6 +90,11 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
         "discovered_ports": getattr(s, "discovered_ports", 0) or 0,
         "technologies_count": getattr(s, "technologies_count", 0) or 0,
         "risk_score": getattr(s, "risk_score", 0) or 0,
+        "nodes_count": getattr(s, "nodes_count", 0) or 0,
+        "requests_used": getattr(s, "requests_used", 0) or 0,
+        "request_budget": getattr(s, "request_budget", 0) or 0,
+        "safety_mode": getattr(s, "safety_mode", None) or "production",
+        "interrupted": bool(getattr(s, "interrupted", False)),
     }
     if include_detail:
         import json
@@ -824,7 +832,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             return _err("BAD_REQUEST", "Set confirm=true to start an authorized scan.", 400)
         profile = (data.get("profile") or data.get("scan_profile") or "QUICK").upper()
         if profile not in SCAN_PROFILES:
-            return _err("BAD_REQUEST", "profile must be QUICK, STANDARD, or DEEP.", 400)
+            return _err("BAD_REQUEST", f"profile must be one of: {', '.join(sorted(SCAN_PROFILES))}.", 400)
         try:
             # Flush session so background worker sees latest target state.
             db.commit()
@@ -834,6 +842,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 profile=profile,
                 user=g.current_user,
                 create_alerts=bool(data.get("create_alerts", True)),
+                safety_mode=data.get("safety_mode"),
             )
         except PermissionError as exc:
             return _err("FORBIDDEN", str(exc), 403)
@@ -1111,7 +1120,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             return _err("NOT_FOUND", "Finding not found.", 404)
         data = request.get_json(silent=True) or {}
         status = (data.get("status") or "").upper()
-        if status and status not in {"OPEN", "CONFIRMED", "FALSE_POSITIVE", "RESOLVED"}:
+        if status and status not in {"OPEN", "CONFIRMED", "FALSE_POSITIVE", "RESOLVED", "SUPPRESSED", "ACCEPTED_RISK"}:
             return _err("BAD_REQUEST", "Invalid status.", 400)
         if status:
             finding.status = status
@@ -1284,6 +1293,119 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 "risk_score": getattr(s, "risk_score", 0) or 0,
             })
         return jsonify({"surfaces": nodes})
+
+    @app.route("/api/web-scans/<int:scan_id>/tree")
+    @login_required
+    @require_permission("webscan.read")
+    def web_scan_tree(scan_id):
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        scan = db.get(WebScan, scan_id)
+        if not scan:
+            return _err("NOT_FOUND", "Scan not found.", 404)
+        return jsonify(build_tree_payload(db, scan_id))
+
+    @app.route("/api/web-scans/<int:scan_id>/events")
+    @login_required
+    @require_permission("webscan.read")
+    def web_scan_events(scan_id):
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        scan = db.get(WebScan, scan_id)
+        if not scan:
+            return _err("NOT_FOUND", "Scan not found.", 404)
+        event_filter = (request.args.get("type") or "").upper()
+        q = db.query(WebScanEvent).filter_by(scan_id=scan_id).order_by(WebScanEvent.id.asc())
+        rows = q.limit(min(int(request.args.get("limit") or 500), 2000)).all()
+        events = []
+        for e in rows:
+            if event_filter and event_filter != "ALL" and e.event_type.upper() != event_filter:
+                continue
+            events.append({
+                "id": e.id,
+                "scan_id": e.scan_id,
+                "target_id": e.target_id,
+                "event_type": e.event_type,
+                "message": e.message,
+                "severity": e.severity,
+                "node_id": e.node_id,
+                "finding_id": e.finding_id,
+                "timestamp": e.created_at.isoformat() if e.created_at else None,
+            })
+        return jsonify({"events": events})
+
+    @app.route("/api/web-scans/<int:scan_id>/resume", methods=["POST"])
+    @login_required
+    @require_permission("webscan.run")
+    def web_scan_resume(scan_id):
+        try:
+            scan = resume_scan(scan_id, user=g.current_user, created_by=g.current_user.username)
+        except PermissionError as exc:
+            return _err("FORBIDDEN", str(exc), 403)
+        except ValueError as exc:
+            return _err("BAD_REQUEST", str(exc), 400)
+        except RuntimeError as exc:
+            return _err("UNAVAILABLE", str(exc), 503)
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        scan = db.get(WebScan, scan.id) or scan
+        return jsonify(_serialize_scan(scan)), 202
+
+    @app.route("/api/web-targets/<int:target_id>/attack-surface")
+    @login_required
+    @require_permission("webscan.read")
+    def target_attack_surface(target_id):
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        target = db.get(WebTarget, target_id)
+        if not target:
+            return _err("NOT_FOUND", "Target not found.", 404)
+        scan = (
+            db.query(WebScan)
+            .filter_by(target_id=target_id)
+            .order_by(WebScan.id.desc())
+            .first()
+        )
+        if not scan:
+            return jsonify({"target": _serialize_target(target), "scan_id": None, "tree": {"nodes": [], "root_ids": []}})
+        tree = build_tree_payload(db, scan.id)
+        return jsonify({
+            "target": _serialize_target(target),
+            "scan": _serialize_scan(scan),
+            "scan_id": scan.id,
+            "tree": tree,
+        })
+
+    @app.route("/api/webscan/health")
+    @login_required
+    @require_permission("webscan.read")
+    def webscan_health_alias():
+        engines = get_engine_status()
+        return jsonify({"engines": engines, "status": "ok"})
+
+    @app.route("/api/web-findings/<int:finding_id>/false-positive", methods=["POST"])
+    @login_required
+    @require_permission("webscan.run")
+    def web_finding_false_positive(finding_id):
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        finding = db.get(WebFinding, finding_id)
+        if not finding:
+            return _err("NOT_FOUND", "Finding not found.", 404)
+        finding.status = "FALSE_POSITIVE"
+        db.commit()
+        write_audit(db, action="web_finding.false_positive", user=g.current_user,
+                    resource_type="web_finding", resource_id=finding.id)
+        return jsonify(_serialize_finding(finding, detail=True))
+
+    @app.route("/api/web-findings/<int:finding_id>/suppress", methods=["POST"])
+    @login_required
+    @require_permission("webscan.run")
+    def web_finding_suppress(finding_id):
+        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        finding = db.get(WebFinding, finding_id)
+        if not finding:
+            return _err("NOT_FOUND", "Finding not found.", 404)
+        finding.status = "SUPPRESSED"
+        db.commit()
+        write_audit(db, action="web_finding.suppress", user=g.current_user,
+                    resource_type="web_finding", resource_id=finding.id)
+        return jsonify(_serialize_finding(finding, detail=True))
 
     # -------- Sigma --------
     @app.route("/api/sigma/import", methods=["POST"])

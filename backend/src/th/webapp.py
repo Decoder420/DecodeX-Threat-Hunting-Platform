@@ -5,15 +5,8 @@ from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 import os
-import io
 import time 
 import re
-
-# ReportLab for PDF generation
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
 
 # Database and Scanner imports
 from .db import (
@@ -22,6 +15,7 @@ from .db import (
     create_ingest_key, get_active_ingest_key, revoke_ingest_key, IngestKey,
     user_has_permission, serialize_user, count_active_admins, utcnow,
 )
+from .incident_report import generate_alert_incident_pdf
 from .pipeline import (
     DEFAULT_RULE_FILE,
     ingest_log_payload,
@@ -467,30 +461,27 @@ def generate_report(alert_id):
     alert = db.get(Alert, alert_id)
     if not alert:
         return "Not found", 404
-    start, end = alert.event_timestamp - timedelta(minutes=15), alert.event_timestamp + timedelta(minutes=15)
-    events = db.query(Event).filter(Event.host == alert.host, Event.timestamp >= start, Event.timestamp <= end).all()
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
-    elements = [
-        Paragraph(f"SOC Incident Report: {alert.tactic}", styles['Title']),
-        Paragraph(f"<b>Host:</b> {alert.host} | <b>User:</b> {alert.user} | <b>Severity:</b> {alert.severity}", styles['Normal']),
-        Spacer(1, 20)
-    ]
+    prepared_by = (getattr(user, "username", None) or "Manan Mandal").strip()
+    # Prefer named SOC engineer branding when the logged-in user is the demo admin.
+    if prepared_by.lower() in {"admin", "administrator"}:
+        prepared_by = "Manan Mandal"
 
-    data = [["Time", "Process", "Command Line"]]
-    for e in events:
-        data.append([e.timestamp.strftime("%H:%M:%S"), e.process, (e.commandline[:50] + '...') if len(e.commandline) > 50 else e.commandline])
-
-    t = Table(data, colWidths=[80, 100, 300])
-    t.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.darkblue), ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke), ('GRID', (0,0), (-1,-1), 0.5, colors.grey)]))
-    elements.append(t)
-    
-    doc.build(elements)
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name=f"Incident_{alert_id}.pdf", mimetype='application/pdf')
-
+    buffer = generate_alert_incident_pdf(db, alert, prepared_by=prepared_by)
+    year = (alert.event_timestamp or alert.created_at or datetime.utcnow()).year
+    download_name = f"IR-{year}-{int(alert.id):03d}_Incident_Report.pdf"
+    response = send_file(
+        buffer,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/pdf",
+    )
+    # Prevent browsers from serving a cached old single-page PDF.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["X-Incident-Report-Template"] = "IR-TEMPLATE-2026.2"
+    return response
 # --- ADMIN, YARA & SUPPRESSION ---
 @app.route("/api/admin/data")
 @login_required

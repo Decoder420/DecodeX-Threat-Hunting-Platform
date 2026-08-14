@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,7 +28,23 @@ logger = logging.getLogger("th.web_scanner.engines")
 
 
 def _which(path: str) -> str | None:
-    return shutil.which(path)
+    """Resolve scanner binary from absolute path or PATH."""
+    if not path:
+        return None
+    raw = str(path).strip().strip('"')
+    candidate = Path(raw)
+    if candidate.is_file():
+        return str(candidate.resolve())
+    # Allow path without extension on Windows
+    if os.name == "nt" and not candidate.suffix:
+        exe = candidate.with_suffix(".exe")
+        if exe.is_file():
+            return str(exe.resolve())
+    found = shutil.which(raw)
+    if found:
+        return found
+    # shutil.which may miss bare names when PATH was updated in another shell
+    return shutil.which(raw + ".exe") if os.name == "nt" and not raw.lower().endswith(".exe") else None
 
 
 def detect_engines() -> dict:
@@ -48,8 +66,14 @@ def detect_engines() -> dict:
             zap_ok = False
     return {
         "builtin": {"installed": True, "version": "2.0", "status": "READY", "path": "builtin"},
-        "httpx": {"installed": False, "version": "", "status": "NOT_INSTALLED", "path": "",
-                  "note": "HTTP discovery uses the built-in engine (httpx-style)."},
+        "httpx": {
+            "installed": True,
+            "version": "builtin",
+            "status": "READY",
+            "path": "builtin",
+            "note": "HTTP discovery uses the built-in engine (httpx-style).",
+            "enabled": True,
+        },
         "nuclei": {
             "installed": bool(nuclei),
             "version": _version([nuclei, "-version"]) if nuclei else "",
@@ -85,7 +109,9 @@ def _version(cmd: list[str]) -> str:
             check=False,
         )
         out = (proc.stdout or proc.stderr or "").strip().splitlines()
-        return out[0][:120] if out else ""
+        line = out[0][:160] if out else ""
+        # Strip ANSI color codes from tools like Nuclei.
+        return re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
     except Exception:
         return ""
 

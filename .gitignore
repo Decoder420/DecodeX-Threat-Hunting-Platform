@@ -23,3 +23,11 @@ siem-ui/build/
 # Tooling
 ngrok.exe
 ngrok
+backend/tools/nuclei/nuclei.exe
+backend/tools/nuclei/nuclei.zip
+backend/tools/**/*.exe
+backend/tools/**/*.zip
+backend/tools/zap_api_key.txt
+backend/tools/zap/zap-daemon.log*
+backend/tools/zap/zap.pid
+backend/tools/zap/ZAP_*/

@@ -31,6 +31,13 @@ export const webApi = {
     api.post(`/web-findings/${id}/case`, payload),
 
   getAttackSurface: (params) => api.get("/web/attack-surface", { params }),
+  getTargetAttackSurface: (id) => api.get(`/web-targets/${id}/attack-surface`),
+  getScanTree: (id) => api.get(`/web-scans/${id}/tree`),
+  getScanEvents: (id, params) => api.get(`/web-scans/${id}/events`, { params }),
+  resumeScan: (id) => api.post(`/web-scans/${id}/resume`),
+  markFalsePositive: (id) => api.post(`/web-findings/${id}/false-positive`),
+  suppressFinding: (id) => api.post(`/web-findings/${id}/suppress`),
+  getScannerHealth: () => api.get("/webscan/health"),
   getScannerStatus: () => api.get("/web/scanner/status"),
   getEngines: () => api.get("/web/scanner/engines"),
 };

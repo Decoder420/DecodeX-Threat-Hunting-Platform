@@ -27,6 +27,33 @@ Package: `backend/src/th/web_scanner/`
 | `orchestrator.py` | Background jobs, stages, Socket.IO, alerts |
 | `config.py` | Profiles + env configuration |
 
+## Attack surface / Website Map
+
+Persisted nodes in `web_scan_nodes` with parent/child relationships.
+Realtime Socket.IO events grow the tree while the scan runs:
+
+- `webscan_node_discovered` / `webscan_node_updated`
+- `webscan_finding_discovered`
+- `webscan_log`
+- plus existing `web_scan_*` lifecycle events
+
+API:
+
+- `GET /api/web-scans/<id>/tree`
+- `GET /api/web-scans/<id>/events`
+- `GET /api/web-targets/<id>/attack-surface`
+- `POST /api/web-scans/<id>/resume`
+- `GET /api/webscan/health`
+
+Frontend: **Web Security → Website Map** (`/webscan/map`).
+
+## Scan profiles
+
+`QUICK`, `STANDARD`, `DEEP`, `PASSIVE`, `API`, `AUTHENTICATED`, `LAB`, `DEMO`
+
+`DEMO` emits clearly labeled `[DEMO]` synthetic findings for UI rehearsal.
+`LAB` / aggressive engines respect `WEBSCAN_PRODUCTION_SAFETY_MODE` and `WEBSCAN_LAB_MODE`.
+
 ## Security model
 
 - Scans require `authorization_status == AUTHORIZED` (never PENDING).
@@ -35,7 +62,7 @@ Package: `backend/src/th/web_scanner/`
 - Permissions: `webscan.read`, `webscan.run` (server-side RBAC).
 - SSRF: block localhost, loopback, link-local, multicast, metadata, private RFC1918 unless `WEBSCAN_ALLOW_PRIVATE_TARGETS=true`.
 - Only `http`/`https`; redirects re-validated; no `shell=True`.
-- Resource limits: concurrent scans, timeouts, max URLs/depth/response size.
+- Resource limits: concurrent scans, timeouts, max URLs/depth/response size, request budget.
 
 ## Scan profiles
 
