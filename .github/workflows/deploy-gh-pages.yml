@@ -1,0 +1,77 @@
+name: Deploy Frontend to gh-pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-deployment
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build React application
+        env:
+          PUBLIC_URL: /Threat-Hunting-Platform
+        run: npm run build
+
+      - name: Prepare SPA fallback
+        run: cp build/index.html build/404.html
+
+      - name: Save production artifact
+        working-directory: .
+        run: cp -R frontend/build /tmp/thp-gh-pages
+
+      - name: Publish build to gh-pages branch
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git checkout -B gh-pages origin/gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
+
+          git clean -fdx
+          git rm -rf . >/dev/null 2>&1 || true
+
+          cp -R /tmp/thp-gh-pages/. .
+          touch .nojekyll
+
+          git add -A
+          git commit -m "Deploy frontend to GitHub Pages" || echo "No changes to deploy"
+          git push origin gh-pages --force
