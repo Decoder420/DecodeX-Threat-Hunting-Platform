@@ -177,7 +177,10 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter
+      basename={process.env.PUBLIC_URL || "/"}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <Routes>
         <Route
           path="/login"
@@ -206,54 +209,15 @@ export default function App() {
                     path="/dashboard"
                     element={
                       <ProtectedRoute permission="dashboard.read">
-                        <Dashboard
-                          embedded
-                          onLogout={handleLogout}
-                          currentUser={sessionUser}
-                        />
+                        <Dashboard embedded onLogout={handleLogout} currentUser={sessionUser} />
                       </ProtectedRoute>
                     }
                   />
-                  <Route
-                    path="/alerts"
-                    element={
-                      <ProtectedRoute permission="alerts.read">
-                        <AlertsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/hunting"
-                    element={
-                      <ProtectedRoute permission="events.read">
-                        <HuntingPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/cases"
-                    element={
-                      <ProtectedRoute permission="cases.read">
-                        <CasesPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/intelligence"
-                    element={
-                      <ProtectedRoute permission="ioc.read">
-                        <IntelligencePage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/webscan"
-                    element={
-                      <ProtectedRoute permission="webscan.read">
-                        <WebSecurityLayout />
-                      </ProtectedRoute>
-                    }
-                  >
+                  <Route path="/alerts" element={<ProtectedRoute permission="alerts.read"><AlertsPage /></ProtectedRoute>} />
+                  <Route path="/hunting" element={<ProtectedRoute permission="events.read"><HuntingPage /></ProtectedRoute>} />
+                  <Route path="/cases" element={<ProtectedRoute permission="cases.read"><CasesPage /></ProtectedRoute>} />
+                  <Route path="/intelligence" element={<ProtectedRoute permission="ioc.read"><IntelligencePage /></ProtectedRoute>} />
+                  <Route path="/webscan" element={<ProtectedRoute permission="webscan.read"><WebSecurityLayout /></ProtectedRoute>}>
                     <Route index element={<WebOverviewPage />} />
                     <Route path="targets" element={<WebTargetsPage />} />
                     <Route path="scans" element={<WebScansPage />} />
@@ -263,43 +227,10 @@ export default function App() {
                     <Route path="map/target/:targetId" element={<WebsiteMapPage />} />
                     <Route path="health" element={<WebScannerHealthPage />} />
                   </Route>
-                  <Route
-                    path="/reports"
-                    element={
-                      <ProtectedRoute permission="reports.read">
-                        <ReportsPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/users"
-                    element={
-                      <ProtectedRoute permission="users.read">
-                        <AdminUsersPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/audit"
-                    element={
-                      <ProtectedRoute permission="audit.read">
-                        <AdminAuditPage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/console"
-                    element={
-                      <ProtectedRoute permission="users.read">
-                        <Dashboard
-                          embedded
-                          initialView="admin"
-                          onLogout={handleLogout}
-                          currentUser={sessionUser}
-                        />
-                      </ProtectedRoute>
-                    }
-                  />
+                  <Route path="/reports" element={<ProtectedRoute permission="reports.read"><ReportsPage /></ProtectedRoute>} />
+                  <Route path="/admin/users" element={<ProtectedRoute permission="users.read"><AdminUsersPage /></ProtectedRoute>} />
+                  <Route path="/admin/audit" element={<ProtectedRoute permission="audit.read"><AdminAuditPage /></ProtectedRoute>} />
+                  <Route path="/admin/console" element={<ProtectedRoute permission="users.read"><Dashboard embedded initialView="admin" onLogout={handleLogout} currentUser={sessionUser} /></ProtectedRoute>} />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </AppLayout>
