@@ -808,7 +808,7 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
             const url =
                 `${BACKEND_URL}/api/report/${id}?token=${encodeURIComponent(
                     token || ""
-                )}`;
+                )}&v=${Date.now()}`;
 
             window.open(
                 url,

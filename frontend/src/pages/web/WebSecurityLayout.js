@@ -7,6 +7,7 @@ const TABS = [
   { to: "/webscan/scans", label: "Scans" },
   { to: "/webscan/findings", label: "Findings" },
   { to: "/webscan/attack-surface", label: "Attack Surface" },
+  { to: "/webscan/map", label: "Website Map" },
   { to: "/webscan/health", label: "Scanner Health" },
 ];
 

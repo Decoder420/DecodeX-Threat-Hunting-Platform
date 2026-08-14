@@ -142,7 +142,8 @@ export default function WebScansPage() {
       setActiveScan(res.data);
       setWizard({ step: 1, target_id: "", profile: "QUICK", confirm: false });
       await load();
-      navigate(`/webscan/scans`);
+      // Open Website Map immediately so the tree grows live
+      navigate(`/webscan/map?scan=${res.data.id}`);
     } catch (err) {
       setError(err.response?.data?.error?.message || "Failed to start scan.");
     }
@@ -221,7 +222,7 @@ export default function WebScansPage() {
           {wizard.step === 2 ? (
             <div>
               <p>Select scan profile.</p>
-              {["QUICK", "STANDARD", "DEEP"].map((p) => (
+              {["QUICK", "STANDARD", "DEEP", "PASSIVE", "API", "AUTHENTICATED", "LAB", "DEMO"].map((p) => (
                 <label key={p} className="websec__radio">
                   <input
                     type="radio"
@@ -232,9 +233,14 @@ export default function WebScansPage() {
                   <span>
                     <strong>{p}</strong>
                     <span className="muted">
-                      {p === "QUICK" && " — TLS, headers, tech, passive"}
-                      {p === "STANDARD" && " — Quick + crawl + Nuclei (if installed)"}
-                      {p === "DEEP" && " — Standard + Nmap + ZAP (if configured)"}
+                      {p === "QUICK" && " — discovery + sitemap + crawl + API paths"}
+                      {p === "STANDARD" && " — Quick + Nuclei"}
+                      {p === "DEEP" && " — Standard + Nmap + ZAP (lab/safety gated)"}
+                      {p === "PASSIVE" && " — TLS/headers/sitemap only (no crawl)"}
+                      {p === "API" && " — API/OpenAPI + sitemap oriented"}
+                      {p === "AUTHENTICATED" && " — crawl/API with auth profile intent"}
+                      {p === "LAB" && " — aggressive lab profile"}
+                      {p === "DEMO" && " — synthetic tree for UI rehearsal"}
                     </span>
                   </span>
                 </label>
@@ -377,8 +383,9 @@ export default function WebScansPage() {
               Cancel scan
             </Button>
           ) : null}
-          {activeScan.status === "COMPLETED" ? (
+          {activeScan.status === "COMPLETED" || activeScan.status === "PARTIAL" ? (
             <div className="websec__actions">
+              <Link to={`/webscan/map?scan=${activeScan.id}`}>Website Map</Link>
               <Link to={`/webscan/findings?scan=${activeScan.id}`}>View findings</Link>
               <Button
                 size="sm"
@@ -397,6 +404,17 @@ export default function WebScansPage() {
                 Export JSON
               </Button>
             </div>
+          ) : null}
+          {["FAILED", "CANCELLED", "PARTIAL"].includes(activeScan.status) && canRun ? (
+            <Button
+              size="sm"
+              onClick={async () => {
+                const res = await webApi.resumeScan(activeScan.id);
+                setActiveScan(res.data);
+              }}
+            >
+              Resume scan
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -444,6 +462,12 @@ export default function WebScansPage() {
                   <td className="websec__actions-cell">
                     <Button size="sm" onClick={() => setActiveScan(s)}>
                       Open
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => navigate(`/webscan/map?scan=${s.id}`)}
+                    >
+                      Map
                     </Button>
                     {(s.status === "RUNNING" || s.status === "PENDING") && canRun ? (
                       <Button size="sm" variant="danger" onClick={() => cancel(s.id)}>

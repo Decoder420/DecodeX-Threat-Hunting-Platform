@@ -12,6 +12,7 @@ import WebTargetsPage from "./pages/web/WebTargetsPage";
 import WebScansPage from "./pages/web/WebScansPage";
 import WebFindingsPage from "./pages/web/WebFindingsPage";
 import WebAttackSurfacePage from "./pages/web/WebAttackSurfacePage";
+import WebsiteMapPage from "./pages/web/WebsiteMapPage";
 import WebScannerHealthPage from "./pages/web/WebScannerHealthPage";
 import ReportsPage from "./pages/ReportsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
@@ -258,6 +259,8 @@ export default function App() {
                     <Route path="scans" element={<WebScansPage />} />
                     <Route path="findings" element={<WebFindingsPage />} />
                     <Route path="attack-surface" element={<WebAttackSurfacePage />} />
+                    <Route path="map" element={<WebsiteMapPage />} />
+                    <Route path="map/target/:targetId" element={<WebsiteMapPage />} />
                     <Route path="health" element={<WebScannerHealthPage />} />
                   </Route>
                   <Route
