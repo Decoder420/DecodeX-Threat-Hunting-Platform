@@ -39,7 +39,7 @@ def _is_blocked_ip(ip: ipaddress._BaseAddress, *, allow_private: bool) -> bool:
     # Cloud metadata / common SSRF sinks
     if ip.version == 4 and str(ip) in {"169.254.169.254", "169.254.170.2"}:
         return True
-    if not allow_private and (ip.is_private or ip.is_site_local):
+    if not allow_private and ip.is_private:
         return True
     return False
 
