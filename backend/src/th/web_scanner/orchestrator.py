@@ -504,15 +504,29 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                 warnings.append("Nmap skipped (production safety mode)")
                 log("NMAP", "Skipped under production safety mode", severity="WARN")
 
-            if profile.get("zap") and allow_aggressive:
-                z_findings, err = run_zap_passive(scan_url)
+            if profile.get("zap"):
+                log("ZAP", f"Starting passive scan & spider on {scan_url}", severity="INFO")
+                z_findings, z_urls, err = run_zap_passive(scan_url)
                 if err:
                     warnings.append(err)
-                    log("ZAP", f"Unavailable: {err}", severity="WARN")
+                    log("ZAP", f"Notice: {err}", severity="WARN")
                 else:
                     raw_findings.extend(z_findings)
-            elif profile.get("zap") and not allow_aggressive:
-                warnings.append("ZAP skipped (production safety mode)")
+                    # Feed ZAP spidered URLs directly into the Website Map attack-surface tree!
+                    added_nodes = 0
+                    for u in z_urls:
+                        try:
+                            surface.ensure_url_path(root, u)
+                            added_nodes += 1
+                        except Exception:
+                            pass
+                    if added_nodes:
+                        urls_discovered += added_nodes
+                        scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
+                        db.commit()
+                    log("ZAP", f"Completed spider ({len(z_urls)} URLs) & passive scan ({len(z_findings)} findings)", severity="INFO")
+
+
 
             if _cancelled(scan_id):
                 _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())

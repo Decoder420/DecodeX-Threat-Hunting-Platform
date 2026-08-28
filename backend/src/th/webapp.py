@@ -1,7 +1,9 @@
 import os
+os.environ.setdefault("EVENTLET_NO_GREENDNS", "yes")
 import time 
 import re
 from datetime import datetime, timedelta
+
 from functools import wraps
 
 from flask import Flask, jsonify, request, send_file, g
@@ -885,7 +887,8 @@ from .web_scanner import set_broadcast as set_webscan_broadcast
 set_webscan_broadcast(lambda event, payload: socketio.emit(event, payload))
 
 # Start background log tailer (offset-tracked via IngestionState).
-start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))
+if os.environ.get("TH_DISABLE_LOG_WATCHER", "").lower() not in ("1", "true", "yes") and os.environ.get("FLASK_ENV") != "testing":
+    start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))
 
 if __name__ == "__main__":
     # Force 0.0.0.0 so Docker can route traffic to your Mac

@@ -14,6 +14,16 @@ from .validators import SSRFError, validate_scan_url
 HREF_RE = re.compile(r"""href=["']([^"'#]+)["']""", re.I)
 
 
+DANGEROUS_PATH_PATTERNS = re.compile(
+    r"/(?:log[-_]?out|sign[-_]?out|delete|destroy|terminate|cancel|remove|account[-_]?close)(?:/|\?|$)",
+    re.I,
+)
+STATIC_BINARY_EXTENSIONS = {
+    ".zip", ".tar", ".gz", ".tgz", ".iso", ".bin", ".exe", ".dmg", ".pkg", ".apk",
+    ".mp4", ".mp3", ".avi", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".woff", ".woff2"
+}
+
+
 def crawl(start_url: str, *, allow_private: bool = False, max_urls: int | None = None,
           max_depth: int | None = None) -> dict:
     max_urls = max_urls or WEBSCAN_MAX_URLS
@@ -34,7 +44,7 @@ def crawl(start_url: str, *, allow_private: bool = False, max_urls: int | None =
                 url,
                 timeout=WEBSCAN_REQUEST_TIMEOUT,
                 allow_redirects=False,
-                headers={"User-Agent": "TH-Platform-WebScanner/2.0"},
+                headers={"User-Agent": "ThreatHuntingPlatform-WebScanner/2.0 (+security-audit)"},
             )
             body = resp.text[:200_000] if resp.headers.get("content-type", "").startswith("text") else ""
             urls.append({
@@ -57,8 +67,16 @@ def crawl(start_url: str, *, allow_private: bool = False, max_urls: int | None =
                 continue
             if (meta["hostname"] or "").lower() != host:
                 continue
-            # Stay under same path prefix if path scoped — keep simple: same host
+            
+            # Real-world safety: Skip destructive endpoints (logout/delete) and bulky binary assets
+            candidate_path = urlparse(meta["url"]).path.lower()
+            if DANGEROUS_PATH_PATTERNS.search(candidate_path):
+                continue
+            if any(candidate_path.endswith(ext) for ext in STATIC_BINARY_EXTENSIONS):
+                continue
+
             if meta["url"] not in seen and len(seen) + len(queue) < max_urls:
                 queue.append((meta["url"], depth + 1))
 
     return {"urls": urls, "count": len(urls), "host": host}
+

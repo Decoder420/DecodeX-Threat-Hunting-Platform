@@ -3,8 +3,10 @@ FROM python:3.11-slim
 # Disable Python bytecode caching to ensure code changes take effect
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV EVENTLET_NO_GREENDNS=yes
 
 WORKDIR /app
+
 
 # Install system dependencies, Nmap, and tools
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -149,14 +149,20 @@ export default function WebsiteMap({
     [rootIds, nodesById]
   );
 
-  // Ensure roots are expanded when tree first loads / grows
+  // Auto-expand roots and parent nodes so the full tree is visible as it grows
+
   React.useEffect(() => {
-    if (!rootIds.length) return;
+    if (!tree?.nodes?.length && !rootIds.length) return;
     setExpanded((prev) => {
-      if (prev.size) return prev;
-      return new Set(rootIds);
+      const next = new Set(prev);
+      rootIds.forEach((id) => next.add(id));
+      Object.keys(childrenByParent).forEach((pid) => {
+        if (pid !== "root") next.add(Number(pid));
+      });
+      return next;
     });
-  }, [rootIds]);
+  }, [tree?.nodes?.length, rootIds, childrenByParent]);
+
 
   const toggle = (id) => {
     setExpanded((prev) => {
