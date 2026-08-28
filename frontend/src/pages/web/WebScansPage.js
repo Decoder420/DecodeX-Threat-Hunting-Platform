@@ -66,7 +66,10 @@ export default function WebScansPage() {
   useEffect(() => {
     if (!activeScan?.id) return undefined;
     const token = getStoredToken();
-    const socket = io(API_BASE_URL, {
+    // Connect via nginx proxy on current origin (port 80)
+    const socketURL = window.location.origin;
+    const socket = io(socketURL, {
+      path: "/socket.io/",
       transports: ["websocket", "polling"],
       auth: token ? { token } : undefined,
     });

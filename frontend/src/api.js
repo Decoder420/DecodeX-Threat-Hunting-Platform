@@ -1,8 +1,8 @@
 import axios from "axios";
 import { clearSession, getStoredToken } from "./auth";
 
-const API_BASE_URL =
-  process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:5000";
+// 1. Export it exactly once right here at the top
+export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "";
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
@@ -41,8 +41,7 @@ api.interceptors.response.use(
   }
 );
 
-export const login = (username, password) =>
-  api.post("/auth/login", { username, password });
+export const login = (username, password) => api.post("/auth/login", { username, password });
 
 export const logout = () => api.post("/auth/logout", {});
 
@@ -122,5 +121,5 @@ export const activateUser = (userId) =>
 export const resetUserPassword = (userId, password) =>
   api.post(`/admin/users/${userId}/reset_password`, { password });
 
-export { API_BASE_URL };
+// 2. The duplicate 'export { API_BASE_URL };' is removed from here!
 export default api;

@@ -9,33 +9,46 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy.orm import declarative_base, sessionmaker
+from werkzeug.security import check_password_hash, generate_password_hash
 
+from sqlalchemy.orm import declarative_base, sessionmaker
+from werkzeug.security import check_password_hash, generate_password_hash
+
+# --- RESTORED MISSING LINES ---
 # 1. Get the absolute path to the root folder
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Load backend/.env as source of truth (override shell env so password edits apply).
+# Load backend/.env as source of truth
 load_dotenv(PROJECT_ROOT / ".env", override=True)
+# ------------------------------
 
 # 2. Define DATABASE_PATH
 DATABASE_PATH = PROJECT_ROOT / "threat_hunting.db"
 
-# 3. Create the engine and session
-# timeout waits on locks instead of failing immediately under concurrent UI refresh.
+# --- ENTERPRISE FIX: Support both PostgreSQL (Production) and SQLite (Legacy/Local) ---
+DB_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")
+
+# Set connection args safely (Postgres rejects SQLite-specific args)
+connect_args = {"check_same_thread": False, "timeout": 30} if DB_URL.startswith("sqlite") else {}
+
+# 3. Create the engine
 engine = create_engine(
-    f"sqlite:///{DATABASE_PATH}",
-    connect_args={"check_same_thread": False, "timeout": 30},
+    DB_URL,
+    connect_args=connect_args,
     future=True,
 )
 
-
-@event.listens_for(engine, "connect")
-def _configure_sqlite(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=30000")
-    cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.close()
-
+# Only apply SQLite PRAGMAs if we are actually using SQLite
+if DB_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+# --- END ENTERPRISE FIX ---
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

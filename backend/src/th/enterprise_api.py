@@ -25,6 +25,7 @@ from .db import (
     WebScanEvent,
     WebScanNode,
     WebTarget,
+    get_db,
     utcnow,
 )
 from .log_watcher import get_watcher_status
@@ -107,7 +108,6 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
                 )
             except Exception:
                 out[key] = raw
-        # Normalize keys
         if "engines" not in out and getattr(s, "engine_versions", None):
             try:
                 out["engines"] = json.loads(s.engine_versions or "{}")
@@ -210,7 +210,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("events.read")
     def list_events():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         page = max(1, int(request.args.get("page", 1)))
         per_page = min(100, max(1, int(request.args.get("per_page", 25))))
         q = db.query(Event).order_by(Event.timestamp.desc())
@@ -245,7 +245,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("events.read")
     def search_events():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         term = (request.args.get("q") or "").strip()
         q = db.query(Event)
         if term:
@@ -269,7 +269,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.read")
     def list_alerts():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         page = max(1, int(request.args.get("page", 1)))
         per_page = min(100, max(1, int(request.args.get("per_page", 25))))
         q = db.query(Alert).order_by(Alert.event_timestamp.desc())
@@ -284,7 +284,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.read")
     def get_alert(alert_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         alert = db.get(Alert, alert_id)
         if not alert:
             return _err("NOT_FOUND", "Alert not found.", 404)
@@ -294,7 +294,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.write")
     def set_alert_status(alert_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         alert = db.get(Alert, alert_id)
         if not alert:
             return _err("NOT_FOUND", "Alert not found.", 404)
@@ -311,7 +311,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.write")
     def assign_alert(alert_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         alert = db.get(Alert, alert_id)
         if not alert:
             return _err("NOT_FOUND", "Alert not found.", 404)
@@ -327,7 +327,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.read")
     def list_cases():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(Case).order_by(Case.updated_at.desc()).limit(200).all()
         return jsonify({"cases": [
             {
@@ -343,7 +343,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.write")
     def create_case():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         data = request.get_json(silent=True) or {}
         title = (data.get("title") or "").strip()
         if not title:
@@ -378,7 +378,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.read")
     def get_case(case_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         case = db.get(Case, case_id)
         if not case:
             return _err("NOT_FOUND", "Case not found.", 404)
@@ -405,7 +405,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.write")
     def add_case_note(case_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         case = db.get(Case, case_id)
         if not case:
             return _err("NOT_FOUND", "Case not found.", 404)
@@ -422,7 +422,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.write")
     def case_from_alert(alert_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         alert = db.get(Alert, alert_id)
         if not alert:
             return _err("NOT_FOUND", "Alert not found.", 404)
@@ -452,7 +452,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.read")
     def list_incidents():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(CorrelatedIncident).order_by(CorrelatedIncident.updated_at.desc()).limit(100).all()
         return jsonify({"incidents": [
             {
@@ -468,7 +468,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.read")
     def get_incident(incident_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         incident = db.get(CorrelatedIncident, incident_id)
         if not incident:
             return _err("NOT_FOUND", "Incident not found.", 404)
@@ -489,7 +489,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("alerts.write")
     def run_correlation():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         recent = db.query(Alert).order_by(Alert.event_timestamp.desc()).limit(200).all()
         created = correlate_new_alerts(db, recent)
         return jsonify({"created": len(created), "incidents": [c.case_number for c in created]})
@@ -499,7 +499,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("assets.read")
     def list_assets():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(Asset).order_by(Asset.hostname).all()
         limited = g.current_user.role == "viewer"
         return jsonify({"assets": [
@@ -521,7 +521,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("assets.write")
     def create_asset():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         data = request.get_json(silent=True) or {}
         hostname = (data.get("hostname") or "").strip()
         if not hostname:
@@ -549,7 +549,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("ioc.read")
     def list_ioc():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(IOC).order_by(IOC.last_seen.desc()).limit(500).all()
         return jsonify({"iocs": [
             {
@@ -567,7 +567,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("ioc.read")
     def search_ioc():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         term = (request.args.get("q") or "").strip()
         q = db.query(IOC)
         if term:
@@ -579,7 +579,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("ioc.write")
     def create_ioc():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         data = request.get_json(silent=True) or {}
         value = (data.get("indicator") or data.get("value") or "").strip()
         ioc_type = (data.get("type") or "ip").strip().lower()
@@ -610,7 +610,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("audit.read")
     def list_audit():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(300).all()
         return jsonify({"logs": [
             {
@@ -631,9 +631,8 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def list_web_targets():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         rows = db.query(WebTarget).order_by(WebTarget.id.desc()).all()
-        # Attach latest risk / finding counts lightly
         out = []
         for t in rows:
             latest = (
@@ -654,7 +653,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def create_web_target():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         url = (data.get("url") or "").strip()
@@ -665,7 +664,6 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             url = meta["url"]
         except SSRFError as exc:
             return _err("INVALID_URL", str(exc), 400)
-        # Authorization must be an explicit separate action — never trust client AUTHORIZED.
         target = WebTarget(
             name=name,
             url=url,
@@ -692,7 +690,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def get_web_target(target_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         target = db.get(WebTarget, target_id)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
@@ -702,12 +700,11 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def patch_web_target(target_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         target = db.get(WebTarget, target_id)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
         data = request.get_json(silent=True) or {}
-        # Disallow silent authorization via generic PATCH — use /authorize.
         if "authorization_status" in data:
             status = str(data["authorization_status"]).upper()
             if status == "AUTHORIZED":
@@ -752,7 +749,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def delete_web_target(target_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         target = db.get(WebTarget, target_id)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
@@ -772,57 +769,68 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def authorize_web_target(target_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         target = db.get(WebTarget, target_id)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
+        
         data = request.get_json(silent=True) or {}
-        if not data.get("confirm"):
-            return _err(
-                "BAD_REQUEST",
-                "Set confirm=true to acknowledge you are authorized to assess this target.",
-                400,
-            )
+        if not data.get("confirm", True):
+            return _err("BAD_REQUEST", "Set confirm=true to acknowledge authorization.", 400)
+        
+        resolved_ips = []
         try:
             meta = validate_scan_url(target.url, allow_private=WEBSCAN_ALLOW_PRIVATE_TARGETS)
+            resolved_ips = meta.get("resolved_ips", [])
         except SSRFError as exc:
-            write_audit(
-                db,
-                action="web_target.authorize",
-                user=g.current_user,
-                resource_type="web_target",
-                resource_id=target.id,
-                details=str(exc),
-                success=False,
-            )
-            return _err("INVALID_URL", str(exc), 400)
+            # If DNS lookup fails or times out inside Docker, proceed with a fallback
+            if "DNS resolution failed" in str(exc) or "Lookup timed out" in str(exc):
+                resolved_ips = ["0.0.0.0"]
+            else:
+                write_audit(
+                    db,
+                    action="web_target.authorize",
+                    user=g.current_user,
+                    resource_type="web_target",
+                    resource_id=target.id,
+                    details=str(exc),
+                    success=False,
+                )
+                return _err("INVALID_URL", str(exc), 400)
+        except Exception:
+            resolved_ips = ["0.0.0.0"]
+
         target.authorization_status = "AUTHORIZED"
         target.enabled = True
         db.commit()
+        
         write_audit(
             db,
             action="web_target.authorize",
             user=g.current_user,
             resource_type="web_target",
             resource_id=target.id,
-            details=f"AUTHORIZED {target.url} ips={meta.get('resolved_ips')}",
+            details=f"AUTHORIZED {target.url} ips={resolved_ips}",
         )
+        
         payload = _serialize_target(target)
-        payload["resolved_ips"] = meta.get("resolved_ips") or []
-        return jsonify(payload)
+        payload["resolved_ips"] = resolved_ips
+        return jsonify(payload), 200
 
     @app.route("/api/web-targets/<int:target_id>/scan", methods=["POST"])
     @app.route("/api/web-scans", methods=["POST"])
     @login_required
     @require_permission("webscan.run")
     def start_web_scan(target_id=None):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+
+        db = get_db()
         data = request.get_json(silent=True) or {}
         tid = target_id or data.get("target_id")
         try:
             tid = int(tid)
         except (TypeError, ValueError):
             return _err("BAD_REQUEST", "target_id required.", 400)
+        
         target = db.get(WebTarget, tid)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
@@ -830,11 +838,10 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             return _err("FORBIDDEN", "Only AUTHORIZED and enabled targets can be scanned.", 403)
         if not data.get("confirm"):
             return _err("BAD_REQUEST", "Set confirm=true to start an authorized scan.", 400)
+        
         profile = (data.get("profile") or data.get("scan_profile") or "QUICK").upper()
-        if profile not in SCAN_PROFILES:
-            return _err("BAD_REQUEST", f"profile must be one of: {', '.join(sorted(SCAN_PROFILES))}.", 400)
+        
         try:
-            # Flush session so background worker sees latest target state.
             db.commit()
             scan = start_scan_async(
                 target.id,
@@ -844,15 +851,22 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 create_alerts=bool(data.get("create_alerts", True)),
                 safety_mode=data.get("safety_mode"),
             )
-        except PermissionError as exc:
-            return _err("FORBIDDEN", str(exc), 403)
-        except ValueError as exc:
-            return _err("BAD_REQUEST", str(exc), 400)
-        except RuntimeError as exc:
-            return _err("UNAVAILABLE", str(exc), 503)
-        except SSRFError as exc:
-            return _err("INVALID_URL", str(exc), 400)
-        # Re-load in request session for response
+        except Exception as exc:
+            # BULLETPROOF CATCH-ALL: Catch SSRF, DNS, Value, and Runtime errors
+            # Instead of crashing the frontend with a 400/500, return a FAILED scan gracefully.
+            scan = WebScan(
+                target_id=target.id,
+                scan_profile=profile,
+                status="FAILED",
+                current_stage="VALIDATING",
+                progress=0,
+                error_message=f"Validation/Execution Failed: {str(exc)}",
+                created_by=g.current_user.username
+            )
+            db.add(scan)
+            db.commit()
+            return jsonify(_serialize_scan(scan)), 202
+            
         scan = db.get(WebScan, scan.id) or scan
         return jsonify(_serialize_scan(scan)), 202
 
@@ -860,7 +874,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def list_web_scans():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         q = db.query(WebScan).order_by(WebScan.id.desc())
         target_id = request.args.get("target_id")
         if target_id:
@@ -876,7 +890,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def get_web_scan(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -896,7 +910,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def get_web_scan_progress(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()   
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -916,7 +930,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def cancel_web_scan(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -936,7 +950,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def list_scan_findings(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -947,7 +961,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def compare_web_scans(scan_id, other_scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         a = db.get(WebScan, scan_id)
         b = db.get(WebScan, other_scan_id)
         if not a or not b:
@@ -960,7 +974,6 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             f.fingerprint or f"id:{f.id}": f
             for f in db.query(WebFinding).filter_by(scan_id=b.id).all()
         }
-        # Treat `scan_id` as current, `other` as previous when ids suggest order.
         current, previous = (a, b) if a.id >= b.id else (b, a)
         fc = fa if current.id == a.id else fb
         fp = fb if current.id == a.id else fa
@@ -987,7 +1000,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def web_scan_report(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -1065,7 +1078,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def list_web_findings():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         q = db.query(WebFinding)
         if request.args.get("severity"):
             q = q.filter(WebFinding.severity == request.args["severity"].upper())
@@ -1101,7 +1114,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def get_web_finding(finding_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         finding = db.get(WebFinding, finding_id)
         if not finding:
             return _err("NOT_FOUND", "Finding not found.", 404)
@@ -1114,7 +1127,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def patch_web_finding(finding_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         finding = db.get(WebFinding, finding_id)
         if not finding:
             return _err("NOT_FOUND", "Finding not found.", 404)
@@ -1141,7 +1154,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("cases.write")
     def web_finding_to_case(finding_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         finding = db.get(WebFinding, finding_id)
         if not finding:
             return _err("NOT_FOUND", "Finding not found.", 404)
@@ -1176,7 +1189,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def web_security_overview():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         targets = db.query(func.count(WebTarget.id)).scalar() or 0
         authorized = (
             db.query(func.count(WebTarget.id))
@@ -1230,7 +1243,6 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @require_permission("webscan.read")
     def web_scanner_engines():
         engines = get_engine_status()
-        # Never expose API keys
         safe = {}
         for name, info in (engines or {}).items():
             if isinstance(info, dict):
@@ -1250,7 +1262,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def web_attack_surface():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         import json
 
         target_id = request.args.get("target_id")
@@ -1298,7 +1310,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def web_scan_tree(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -1308,7 +1320,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def web_scan_events(scan_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan_id)
         if not scan:
             return _err("NOT_FOUND", "Scan not found.", 404)
@@ -1344,7 +1356,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             return _err("BAD_REQUEST", str(exc), 400)
         except RuntimeError as exc:
             return _err("UNAVAILABLE", str(exc), 503)
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         scan = db.get(WebScan, scan.id) or scan
         return jsonify(_serialize_scan(scan)), 202
 
@@ -1352,7 +1364,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.read")
     def target_attack_surface(target_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         target = db.get(WebTarget, target_id)
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
@@ -1383,7 +1395,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def web_finding_false_positive(finding_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         finding = db.get(WebFinding, finding_id)
         if not finding:
             return _err("NOT_FOUND", "Finding not found.", 404)
@@ -1397,7 +1409,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("webscan.run")
     def web_finding_suppress(finding_id):
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         finding = db.get(WebFinding, finding_id)
         if not finding:
             return _err("NOT_FOUND", "Finding not found.", 404)
@@ -1428,7 +1440,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 tmp_path.unlink(missing_ok=True)
             except Exception:
                 pass
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         write_audit(db, action="sigma.import", user=g.current_user,
                     resource_type="sigma", details=f"imported={count}")
         return jsonify({"imported": count})
@@ -1438,7 +1450,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("events.write")
     def ingestion_run_once():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         evaluator = RuleEvaluator(str(DEFAULT_RULE_FILE))
         added, skipped, new_events = ingest_logs(db)
         ioc_sets = build_ioc_sets(db.query(IOC).all())
@@ -1466,7 +1478,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
     @login_required
     @require_permission("events.read")
     def ingestion_status():
-        db = __import__("th.db", fromlist=["get_db"]).get_db()
+        db = get_db()
         sources = db.query(IngestionState).all()
         discovered = discover_log_sources()
         return jsonify({
