@@ -103,8 +103,9 @@ export default function WebsiteMapPage() {
   useEffect(() => {
     const sid = scan?.id || data?.scan_id || (scanParam ? Number(scanParam) : null);
     if (!sid) return undefined;
-    const running = ["RUNNING", "PENDING", "CANCELLING"].includes(scan?.status);
-    if (!running) return undefined;
+    const isTerminal = ["COMPLETED", "FAILED", "CANCELLED", "PARTIAL"].includes(scan?.status);
+    if (isTerminal) return undefined;
+
 
     const tick = async () => {
       try {
@@ -153,9 +154,10 @@ export default function WebsiteMapPage() {
       // Still connect briefly for late events when status unknown
     }
 
-    // Connect via nginx proxy on current origin (port 80)
-    const socketURL = window.location.origin;
+    // Connect via API_BASE_URL if set, or fall back to current origin (Nginx proxy)
+    const socketURL = API_BASE_URL || window.location.origin;
     const socket = io(socketURL, {
+
       path: "/socket.io/",
       transports: ["websocket", "polling"],
       auth: getStoredToken() ? { token: getStoredToken() } : undefined,
@@ -249,7 +251,26 @@ export default function WebsiteMapPage() {
           <Button size="sm" onClick={load}>
             Refresh
           </Button>
+          {scan?.id ? (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                const token = getStoredToken();
+                const bust = Date.now();
+                const baseUrl = API_BASE_URL || window.location.origin;
+                window.open(
+                  `${baseUrl}/api/web-scans/${scan.id}/report.pdf?token=${encodeURIComponent(token)}&v=${bust}`,
+                  "_blank",
+                  "noopener,noreferrer"
+                );
+              }}
+            >
+              📄 Download Report (PDF)
+            </Button>
+          ) : null}
         </div>
+
       </div>
 
       {recentScans.length > 1 ? (
@@ -281,7 +302,7 @@ export default function WebsiteMapPage() {
             tree={tree}
             onSelectNode={onSelectNode}
             selectedId={selected?.id}
-            live={["RUNNING", "PENDING"].includes(scan?.status)}
+            live={Boolean(scan?.status) && !["COMPLETED", "FAILED", "CANCELLED", "PARTIAL"].includes(scan?.status)}
           />
         </div>
         <div className="surface websec__panel">

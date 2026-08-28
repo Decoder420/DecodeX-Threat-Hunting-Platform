@@ -71,8 +71,10 @@ SCAN_PROFILES = {
         **_BASE,
         "crawl": True,
         "nuclei": True,
+        "zap": True,
         "api_discovery": True,
     },
+
     "DEEP": {
         **_BASE,
         "crawl": True,

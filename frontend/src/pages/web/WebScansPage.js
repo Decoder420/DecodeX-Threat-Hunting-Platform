@@ -66,9 +66,10 @@ export default function WebScansPage() {
   useEffect(() => {
     if (!activeScan?.id) return undefined;
     const token = getStoredToken();
-    // Connect via nginx proxy on current origin (port 80)
-    const socketURL = window.location.origin;
+    // Connect via API_BASE_URL if set, or fall back to current origin (Nginx proxy)
+    const socketURL = API_BASE_URL || window.location.origin;
     const socket = io(socketURL, {
+
       path: "/socket.io/",
       transports: ["websocket", "polling"],
       auth: token ? { token } : undefined,
@@ -175,6 +176,23 @@ export default function WebScansPage() {
     (t) => String(t.id) === String(wizard.target_id)
   );
 
+  const latestTargetScan = useMemo(() => {
+    if (!wizard.target_id) return null;
+    return scans.find((s) => String(s.target_id) === String(wizard.target_id)) || null;
+  }, [wizard.target_id, scans]);
+
+  const downloadReportPdf = (scanId, targetName = "Target") => {
+    const token = getStoredToken();
+    const bust = Date.now();
+    const baseUrl = API_BASE_URL || window.location.origin;
+    window.open(
+      `${baseUrl}/api/web-scans/${scanId}/report.pdf?token=${encodeURIComponent(token)}&v=${bust}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  };
+
+
   return (
     <div className="websec__stack">
       {error ? <div className="surface websec__panel error-text">{error}</div> : null}
@@ -210,7 +228,49 @@ export default function WebScansPage() {
                   </option>
                 ))}
               </select>
+              {selectedTarget ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "12px 14px",
+                    background: "rgba(31, 111, 139, 0.08)",
+                    border: "1px solid rgba(31, 111, 139, 0.25)",
+                    borderRadius: 6,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: "var(--color-text, #fff)" }}>
+                      {selectedTarget.name}
+                    </strong>{" "}
+                    <span className="muted">({selectedTarget.url})</span>
+                    {latestTargetScan ? (
+                      <div style={{ fontSize: "0.85rem", marginTop: 4 }} className="muted">
+                        Latest Assessment: Scan #{latestTargetScan.id} · <Badge tone="ok">{latestTargetScan.status}</Badge> · Risk: {latestTargetScan.risk_score || 0}/100 · {latestTargetScan.findings_count || 0} findings
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.85rem", marginTop: 4 }} className="muted">
+                        No previous scan completed yet for this target.
+                      </div>
+                    )}
+                  </div>
+                  {latestTargetScan ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => downloadReportPdf(latestTargetScan.id, selectedTarget.name)}
+                    >
+                      📄 Download Report (PDF)
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="websec__actions">
+
                 <Button
                   variant="primary"
                   disabled={!wizard.target_id}
@@ -316,7 +376,22 @@ export default function WebScansPage() {
 
           {wizard.step === 5 ? (
             <div>
-              <p>Start background scan. Progress updates live.</p>
+              <p>
+                Ready to start {wizard.profile} scan against <strong>{selectedTarget?.name}</strong> ({selectedTarget?.url}). Progress updates live.
+              </p>
+              {latestTargetScan ? (
+                <div style={{ marginBottom: 14 }}>
+                  <span className="muted" style={{ fontSize: "0.9rem" }}>
+                    Previous report on file: Scan #{latestTargetScan.id} ({latestTargetScan.findings_count || 0} findings) ·{" "}
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => downloadReportPdf(latestTargetScan.id, selectedTarget?.name)}
+                  >
+                    📄 Download Previous Report (PDF)
+                  </Button>
+                </div>
+              ) : null}
               <div className="websec__actions">
                 <Button onClick={() => setWizard({ ...wizard, step: 4 })}>Back</Button>
                 <Button variant="primary" onClick={startScan}>
@@ -386,14 +461,26 @@ export default function WebScansPage() {
               Cancel scan
             </Button>
           ) : null}
-          {activeScan.status === "COMPLETED" || activeScan.status === "PARTIAL" ? (
+          {activeScan.status === "COMPLETED" || activeScan.status === "PARTIAL" || (activeScan.findings_count || 0) > 0 ? (
             <div className="websec__actions">
               <Link to={`/webscan/map?scan=${activeScan.id}`}>Website Map</Link>
               <Link to={`/webscan/findings?scan=${activeScan.id}`}>View findings</Link>
               <Button
                 size="sm"
+                variant="primary"
+                onClick={() =>
+                  downloadReportPdf(
+                    activeScan.id,
+                    activeScan.target?.name || selectedTarget?.name || "Target"
+                  )
+                }
+              >
+                📄 Download Report (PDF)
+              </Button>
+              <Button
+                size="sm"
                 onClick={async () => {
-                  const res = await webApi.getScanReport(activeScan.id);
+                  const res = await webApi.getScanReport(activeScan.id, "json");
                   const blob = new Blob([JSON.stringify(res.data, null, 2)], {
                     type: "application/json",
                   });
@@ -406,8 +493,24 @@ export default function WebScansPage() {
               >
                 Export JSON
               </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const token = getStoredToken();
+                  const bust = Date.now();
+                  const baseUrl = API_BASE_URL || window.location.origin;
+                  window.open(
+                    `${baseUrl}/api/web-scans/${activeScan.id}/report?format=csv&token=${encodeURIComponent(token)}&v=${bust}`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                }}
+              >
+                Export CSV
+              </Button>
             </div>
           ) : null}
+
           {["FAILED", "CANCELLED", "PARTIAL"].includes(activeScan.status) && canRun ? (
             <Button
               size="sm"
@@ -472,7 +575,20 @@ export default function WebScansPage() {
                     >
                       Map
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() =>
+                        downloadReportPdf(
+                          s.id,
+                          targets.find((t) => String(t.id) === String(s.target_id))?.name
+                        )
+                      }
+                    >
+                      PDF
+                    </Button>
                     {(s.status === "RUNNING" || s.status === "PENDING") && canRun ? (
+
                       <Button size="sm" variant="danger" onClick={() => cancel(s.id)}>
                         Cancel
                       </Button>

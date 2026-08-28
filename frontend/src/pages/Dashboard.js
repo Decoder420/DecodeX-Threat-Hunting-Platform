@@ -244,9 +244,10 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
 
     /* ========================================================        REALTIME SOCKET.IO        ======================================================== */
     useEffect(() => {
-        // Connect via nginx proxy on current origin (port 80)
-        const socketURL = window.location.origin;
+        // Connect via BACKEND_URL if set, or fall back to current origin (Nginx proxy)
+        const socketURL = BACKEND_URL || window.location.origin;
         const socket = io(
+
             socketURL, {
                 path: "/socket.io/",
                 transports: ["websocket", "polling"],  // Allow both WebSocket and polling fallback

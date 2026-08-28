@@ -63,49 +63,33 @@ def resolve_and_validate_host(hostname: str, *, allow_private: bool = False) -> 
     # Literal IP in hostname
     try:
         ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+
+    if ip is not None:
         if _is_blocked_ip(ip, allow_private=allow_private):
             raise SSRFError(f"IP address '{host}' is not allowed.")
         return [str(ip)]
-    except ValueError:
-        pass
 
-    # Try DNS resolution with simple socket (reliable)
-    resolved_addrs = []
-    
+    # DNS resolution with clean timeout restoration
+    old_timeout = socket.getdefaulttimeout()
     try:
-        socket.setdefaulttimeout(3)
-        # Try IPv4 first (AF_INET), then fallback to AF_UNSPEC if needed
-        try:
-            infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
-        except (socket.gaierror, socket.timeout):
-            try:
-                infos = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            except (socket.gaierror, socket.timeout):
-                # DNS timeout - proceed anyway (Docker DNS is unreliable)
-                logger.warning(f"DNS resolution timed out for {host}, allowing scan to proceed")
-                resolved_addrs = [host]  # Use hostname as-is
-                socket.setdefaulttimeout(None)
-        socket.setdefaulttimeout(None)
-        if not resolved_addrs:  # Only if we didn't timeout
-            for info in infos:
-                addr = info[4][0]
-                if addr not in resolved_addrs:
-                    resolved_addrs.append(addr)
+        socket.setdefaulttimeout(3.0)
+        # socket.getaddrinfo(host, port, family, type) using positional args for cross-version compatibility
+        infos = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM)
     except socket.gaierror as exc:
-        socket.setdefaulttimeout(None)
         raise SSRFError(f"DNS resolution failed for '{host}': {exc}") from exc
-    
-    if not resolved_addrs:
-        raise SSRFError(f"No addresses resolved for '{host}'")
+    except socket.error as exc:
+        raise SSRFError(f"Network error resolving '{host}': {exc}") from exc
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
-    # Validate resolved addresses against SSRF rules
-    # If DNS timed out and we only have the hostname, skip IP validation
-    if resolved_addrs == [host]:
-        logger.warning(f"Using hostname {host} directly due to DNS timeout")
-        return [host]
-    
+    if not infos:
+        raise SSRFError(f"No addresses resolved for '{host}'.")
+
     resolved: list[str] = []
-    for addr in resolved_addrs:
+    for info in infos:
+        addr = info[4][0]
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
@@ -116,9 +100,11 @@ def resolve_and_validate_host(hostname: str, *, allow_private: bool = False) -> 
             )
         if addr not in resolved:
             resolved.append(addr)
+
     if not resolved:
         raise SSRFError(f"No usable addresses resolved for '{host}'.")
     return resolved
+
 
 
 def validate_scan_url(url: str, *, allow_private: bool = False) -> dict:

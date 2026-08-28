@@ -54,15 +54,21 @@ def detect_engines() -> dict:
     zap_version = ""
     if ZAP_ENABLED:
         try:
+            headers = {"X-ZAP-API-Key": ZAP_API_KEY} if ZAP_API_KEY else {}
+            params = {"apikey": ZAP_API_KEY} if ZAP_API_KEY else {}
             r = requests.get(
                 f"{ZAP_URL}/JSON/core/view/version/",
-                params={"apikey": ZAP_API_KEY} if ZAP_API_KEY else {},
+                headers=headers,
+                params=params,
                 timeout=3,
             )
             if r.ok:
                 zap_ok = True
                 zap_version = str((r.json() or {}).get("version") or "")
-        except Exception:
+            else:
+                logger.warning("ZAP version probe returned HTTP %s: %s", r.status_code, r.text)
+        except Exception as exc:
+            logger.debug("ZAP probe failed: %s", exc)
             zap_ok = False
     return {
         "builtin": {"installed": True, "version": "2.0", "status": "READY", "path": "builtin"},
@@ -96,6 +102,7 @@ def detect_engines() -> dict:
             "enabled": ZAP_ENABLED,
         },
     }
+
 
 
 def _version(cmd: list[str]) -> str:
@@ -265,63 +272,125 @@ def run_nmap(hostname: str, *, timeout: int | None = None) -> tuple[list[dict], 
     return findings, ports, None
 
 
-def run_zap_passive(url: str, *, timeout: int = 60) -> tuple[list[dict], str | None]:
-    """Optional ZAP spider + passive alerts via API (no arbitrary active scan by default)."""
+def run_zap_passive(url: str, *, timeout: int = 60) -> tuple[list[dict], list[str], str | None]:
+    """ZAP spider + passive inspection via ZAP REST API. Non-destructive."""
     if not ZAP_ENABLED:
-        return [], "ZAP disabled by configuration"
+        return [], [], "ZAP disabled by configuration"
     try:
+        headers = {"X-ZAP-API-Key": ZAP_API_KEY} if ZAP_API_KEY else {}
         params = {"apikey": ZAP_API_KEY} if ZAP_API_KEY else {}
-        # Access URL (adds to site tree)
-        requests.get(
+
+        # 1. Access URL (seeds ZAP site tree)
+        r_access = requests.get(
             f"{ZAP_URL}/JSON/core/action/accessUrl/",
+            headers=headers,
             params={**params, "url": url, "followRedirects": "true"},
             timeout=15,
         )
-        # Spider
+        if not r_access.ok and r_access.status_code == 403:
+            return [], [], "ZAP API Access Denied (check ZAP api.key and network whitelist config)"
+
+        # 2. Spider site & extract site tree URLs
+        spider_urls: list[str] = []
         spider = requests.get(
             f"{ZAP_URL}/JSON/spider/action/scan/",
-            params={**params, "url": url, "maxChildren": "20", "recurse": "true"},
+            headers=headers,
+            params={**params, "url": url, "maxChildren": "50", "recurse": "true"},
             timeout=15,
         )
         if spider.ok:
             scan_id = (spider.json() or {}).get("scan")
-            # Wait briefly
             import time
             deadline = time.time() + min(timeout, 45)
             while time.time() < deadline and scan_id is not None:
                 st = requests.get(
                     f"{ZAP_URL}/JSON/spider/view/status/",
+                    headers=headers,
                     params={**params, "scanId": scan_id},
                     timeout=5,
                 )
                 if st.ok and str((st.json() or {}).get("status")) == "100":
                     break
-                time.sleep(2)
-        alerts = requests.get(
-            f"{ZAP_URL}/JSON/alert/view/alerts/",
-            params={**params, "baseurl": url, "start": "0", "count": "100"},
-            timeout=15,
-        )
-        if not alerts.ok:
-            return [], f"ZAP alerts API error: {alerts.status_code}"
+                time.sleep(1.5)
+
+            if scan_id is not None:
+                try:
+                    res_sp = requests.get(
+                        f"{ZAP_URL}/JSON/spider/view/results/",
+                        headers=headers,
+                        params={**params, "scanId": scan_id},
+                        timeout=10,
+                    )
+                    if res_sp.ok:
+                        for item in (res_sp.json() or {}).get("results") or []:
+                            if isinstance(item, str) and item.startswith("http"):
+                                spider_urls.append(item)
+                except Exception:
+                    pass
+
+        # Also query all discovered URLs from ZAP core view
+        try:
+          res_core = requests.get(
+              f"{ZAP_URL}/JSON/core/view/urls/",
+              headers=headers,
+              params={**params, "baseurl": url},
+              timeout=10,
+          )
+          if res_core.ok:
+              for u in (res_core.json() or {}).get("urls") or []:
+                  if isinstance(u, str) and u.startswith("http") and u not in spider_urls:
+                      spider_urls.append(u)
+        except Exception:
+          pass
+
+        # 3. Fetch Passive Scan Alerts with fallback for trailing slash variations
+        alerts_data = []
+        for base in [url, url.rstrip("/"), f"{url.rstrip('/')}/"]:
+            alerts_resp = requests.get(
+                f"{ZAP_URL}/JSON/alert/view/alerts/",
+                headers=headers,
+                params={**params, "baseurl": base, "start": "0", "count": "100"},
+                timeout=15,
+            )
+            if alerts_resp.ok:
+                items = (alerts_resp.json() or {}).get("alerts") or []
+                if items:
+                    alerts_data = items
+                    break
+
+        if not alerts_data:
+            # Query session alerts and filter by hostname
+            alerts_all = requests.get(
+                f"{ZAP_URL}/JSON/alert/view/alerts/",
+                headers=headers,
+                params={**params, "start": "0", "count": "50"},
+                timeout=10,
+            )
+            if alerts_all.ok:
+                parsed_target = urlparse(url)
+                target_host = (parsed_target.netloc or parsed_target.hostname or "").lower()
+                all_items = (alerts_all.json() or {}).get("alerts") or []
+                alerts_data = [a for a in all_items if target_host in (a.get("url") or "").lower()]
+
         findings = []
-        for a in (alerts.json() or {}).get("alerts") or []:
+        sev_map = {
+            "INFORMATIONAL": "INFO",
+            "INFO": "INFO",
+            "LOW": "LOW",
+            "MEDIUM": "MEDIUM",
+            "HIGH": "HIGH",
+            "CRITICAL": "CRITICAL",
+        }
+        for a in alerts_data:
             risk = str(a.get("risk") or "Informational").upper()
-            sev_map = {
-                "INFORMATIONAL": "INFO",
-                "INFO": "INFO",
-                "LOW": "LOW",
-                "MEDIUM": "MEDIUM",
-                "HIGH": "HIGH",
-                "CRITICAL": "CRITICAL",
-            }
             findings.append({
                 "title": a.get("alert") or a.get("name") or "ZAP finding",
                 "description": (a.get("description") or "")[:2000],
                 "severity": sev_map.get(risk, "INFO"),
-                "confidence": 70,
+                "confidence": 75,
                 "category": "zap",
                 "cwe": str(a.get("cweid") or ""),
+                "cve": "",
                 "evidence": (a.get("evidence") or a.get("other") or "")[:2000],
                 "recommendation": (a.get("solution") or "Review ZAP guidance.")[:2000],
                 "affected_url": a.get("url") or url,
@@ -329,6 +398,9 @@ def run_zap_passive(url: str, *, timeout: int = 60) -> tuple[list[dict], str | N
                 "method": a.get("method") or "GET",
                 "parameter": a.get("param") or "",
             })
-        return findings, None
+        return findings, spider_urls, None
     except Exception as exc:
-        return [], f"ZAP unavailable: {exc}"
+        logger.debug("ZAP passive execution failed: %s", exc)
+        return [], [], f"ZAP unavailable: {exc}"
+
+

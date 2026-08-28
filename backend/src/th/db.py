@@ -9,19 +9,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
-from sqlalchemy.orm import declarative_base, sessionmaker
-from werkzeug.security import check_password_hash, generate_password_hash
 
-from sqlalchemy.orm import declarative_base, sessionmaker
-from werkzeug.security import check_password_hash, generate_password_hash
-
-# --- RESTORED MISSING LINES ---
 # 1. Get the absolute path to the root folder
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Load backend/.env as source of truth
-load_dotenv(PROJECT_ROOT / ".env", override=True)
-# ------------------------------
+# Load backend/.env safely without overriding environment variables set by host/Docker/tests
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+
 
 # 2. Define DATABASE_PATH
 DATABASE_PATH = PROJECT_ROOT / "threat_hunting.db"

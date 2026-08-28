@@ -21,8 +21,9 @@ export const webApi = {
   getScanReport: (id, format = "json") =>
     api.get(`/web-scans/${id}/report`, {
       params: { format },
-      responseType: format === "csv" ? "blob" : "json",
+      responseType: format === "csv" || format === "pdf" ? "blob" : "json",
     }),
+
 
   getFindings: (params) => api.get("/web-findings", { params }),
   getFinding: (id) => api.get(`/web-findings/${id}`),

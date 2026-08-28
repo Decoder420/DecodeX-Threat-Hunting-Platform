@@ -4,7 +4,7 @@ services:
     container_name: zap_scanner
     ports:
       - "8080:8080"
-    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=ufmqbdsum4iqindh6jaququfso
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=ufmqbdsum4iqindh6jaququfso -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/json/core/view/version?apikey=ufmqbdsum4iqindh6jaququfso"]
       interval: 5s
@@ -26,8 +26,10 @@ services:
       - ZAP_ENABLED=true
       - ZAP_URL=http://zap:8080
       - ZAP_API_KEY=ufmqbdsum4iqindh6jaququfso
+      - EVENTLET_NO_GREENDNS=yes
       - HOST=0.0.0.0
       - ALLOWED_ORIGINS=http://localhost
+
     ports:
       - "5001:5000"
     depends_on:
