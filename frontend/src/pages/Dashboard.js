@@ -73,8 +73,7 @@ import {
    ============================================================ */
 
 const BACKEND_URL =
-  process.env.REACT_APP_API_BASE_URL || "http://127.0.0.1:5000";
-
+  process.env.REACT_APP_API_BASE_URL || "";
 /* ============================================================
    CONSTANTS
    ============================================================ */
@@ -243,39 +242,36 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
        REALTIME SOCKET.IO
        ======================================================== */
 
+    /* ========================================================        REALTIME SOCKET.IO        ======================================================== */
     useEffect(() => {
+        // Connect via nginx proxy on current origin (port 80)
+        const socketURL = window.location.origin;
         const socket = io(
-            BACKEND_URL, {
-                transports: [
-                    "websocket",
-                    "polling",
-                ],
+            socketURL, {
+                path: "/socket.io/",
+                transports: ["websocket", "polling"],  // Allow both WebSocket and polling fallback
                 reconnection: true,
                 reconnectionAttempts: Infinity,
                 reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
             }
         );
-
         socket.on("connect", () => {
             console.log(
                 "Socket.IO connected:",
                 socket.id
             );
-
             setSocketStatus("online");
         });
-
         socket.on(
             "disconnect",
             () => {
                 console.log(
                     "Socket.IO disconnected"
                 );
-
                 setSocketStatus("offline");
             }
         );
-
         socket.on(
             "connect_error",
             (error) => {
@@ -283,11 +279,9 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                     "Socket.IO connection error:",
                     error
                 );
-
                 setSocketStatus("error");
             }
         );
-
         socket.on(
             "new_alert",
             (newAlert) => {
@@ -295,7 +289,6 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                     "Realtime alert:",
                     newAlert
                 );
-
                 setPendingAlerts(
                     (previous) => [
                         newAlert,
@@ -304,7 +297,6 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                 );
             }
         );
-
         return () => {
             socket.disconnect();
         };

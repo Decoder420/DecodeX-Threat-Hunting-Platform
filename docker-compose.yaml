@@ -1,0 +1,87 @@
+services:
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: zap_scanner
+    ports:
+      - "8080:8080"
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=ufmqbdsum4iqindh6jaququfso
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/json/core/view/version?apikey=ufmqbdsum4iqindh6jaququfso"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 45s
+    networks:
+      - threat-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: threat_hunt_backend
+    environment:
+      # ... your existing environment variables ...
+      - TH_ADMIN_PASSWORD=Manan@123
+      - WEBSCAN_ALLOW_PRIVATE_TARGETS=true
+      - ZAP_ENABLED=true
+      - ZAP_URL=http://zap:8080
+      - ZAP_API_KEY=ufmqbdsum4iqindh6jaququfso
+      - HOST=0.0.0.0
+      - ALLOWED_ORIGINS=http://localhost
+    ports:
+      - "5001:5000"
+    depends_on:
+      zap:
+        condition: service_healthy
+    networks:
+      - threat-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 5000), timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: threat_hunt_frontend
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost
+      - WDS_SOCKET_PORT=0
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - threat-net
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: threat_hunt_proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - threat-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q -O- http://127.0.0.1/ > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+networks:
+  threat-net:
+    driver: bridge

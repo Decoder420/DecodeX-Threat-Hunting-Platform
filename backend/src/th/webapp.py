@@ -1,12 +1,14 @@
-from flask import Flask, jsonify, request, send_file, g
-from flask_cors import CORS
-from flask_socketio import SocketIO, emit
-from datetime import datetime, timedelta
-from functools import wraps
-from werkzeug.security import check_password_hash, generate_password_hash
 import os
 import time 
 import re
+from datetime import datetime, timedelta
+from functools import wraps
+
+from flask import Flask, jsonify, request, send_file, g
+from flask_socketio import SocketIO, emit
+from flask_cors import CORS
+from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import func
 
 # Database and Scanner imports
 from .db import (
@@ -14,6 +16,7 @@ from .db import (
     issue_token, get_user_for_token, revoke_token, revoke_all_tokens_for_user,
     create_ingest_key, get_active_ingest_key, revoke_ingest_key, IngestKey,
     user_has_permission, serialize_user, count_active_admins, utcnow,
+    Asset, Case, WebFinding
 )
 from .incident_report import generate_alert_incident_pdf
 from .pipeline import (
@@ -30,48 +33,47 @@ from .scanner import scanner
 from .audit import write_audit
 from .enterprise_api import register_enterprise_routes
 from .log_watcher import start_log_watcher
-from .db import Asset, Case, WebFinding
-from sqlalchemy import func
+from .web_scanner import set_broadcast as set_webscan_broadcast
 
 app = Flask(__name__)
 app.teardown_appcontext(close_db)
 
-# CORS: restrict to known frontend origins. Set ALLOWED_ORIGINS as a
-# comma-separated env var in production (e.g. "https://app.yourdomain.com").
-# Falls back to local dev origins only — never "*" with credentials.
+# CORS: restrict to known frontend origins.
 _allowed_origins_str = os.environ.get(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+    "http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 )
 _allowed_origins = [o.strip() for o in _allowed_origins_str.split(",") if o.strip()]
-# Also allow ngrok domains for development.
-# The free plan uses a random subdomain on each launch.
 _allowed_origins.append(re.compile(r"https?://.*\.ngrok-free\.app"))
 
+# FIX: Expanded CORS to cover ALL routes (r"/*") to ensure Web Security pages load.
 CORS(
     app,
-    resources={r"/api/*": {"origins": _allowed_origins}},
+    resources={r"/*": {"origins": _allowed_origins}},
     supports_credentials=True,
     allow_headers=["Authorization", "Content-Type"],
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
-socketio = SocketIO(app, cors_allowed_origins=_allowed_origins, async_mode="threading")
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=_allowed_origins + ["*"],  # Allow all origins for development
+    async_mode="threading",
+    ping_timeout=60,
+    ping_interval=25,
+    logger=True,
+    engineio_logger=False
+)
 
 RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
 
 # --- AUTHENTICATION ---
-# Real, DB-backed session tokens. Issued by /api/auth/login after checking
-# the hashed password, verified here on every request, and revocable via
-# /api/auth/logout. No more shared static token.
 def api_error(code: str, message: str, status: int):
-    """Consistent JSON error envelope used by auth/RBAC paths."""
     return jsonify({"error": {"code": code, "message": message}}), status
-
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Let Flask-CORS answer preflight without auth.
         if request.method == "OPTIONS":
             return ("", 204)
         auth_header = request.headers.get('Authorization', '')
@@ -84,7 +86,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-
 def admin_required(f):
     @wraps(f)
     @login_required
@@ -94,44 +95,28 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
-
 def require_permission(permission: str):
-    """Fine-grained RBAC. Stack under @login_required (uses g.current_user)."""
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             if not user_has_permission(g.current_user, permission):
-                return api_error(
-                    "FORBIDDEN",
-                    f"You do not have permission to perform this action ({permission}).",
-                    403,
-                )
+                return api_error("FORBIDDEN", f"You do not have permission to perform this action ({permission}).", 403)
             return f(*args, **kwargs)
         return decorated
     return decorator
 
-
 def role_required(min_role):
-    """Legacy hierarchy check (viewer < analyst < admin). Prefer
-    @require_permission for new endpoints; kept for compatibility."""
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             user_rank = ROLE_RANK.get(g.current_user.role, 0)
             if user_rank < ROLE_RANK.get(min_role, 99):
-                return api_error(
-                    "FORBIDDEN",
-                    f"Requires '{min_role}' role or higher.",
-                    403,
-                )
+                return api_error("FORBIDDEN", f"Requires '{min_role}' role or higher.", 403)
             return f(*args, **kwargs)
         return decorated
     return decorator
 
-
 def ingest_key_required(f):
-    """Auth for machine-to-machine ingestion (Vercel log drains, custom
-    apps) — a static per-integration key, not a user login token."""
     @wraps(f)
     def decorated(*args, **kwargs):
         key = request.headers.get("X-Ingest-Key") or request.args.get("key", "")
@@ -143,7 +128,6 @@ def ingest_key_required(f):
         return f(*args, **kwargs)
     return decorated
 
-
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
@@ -153,31 +137,18 @@ def login():
 
     db = get_db()
     user = db.query(User).filter_by(username=username).first()
-    # Constant-shape response whether the user exists or not, to avoid
-    # leaking which usernames are valid via response differences.
     if not user or not user.is_active or not check_password_hash(user.password_hash, password):
-        write_audit(
-            db,
-            action="login.failure",
-            username=username,
-            details="Invalid credentials",
-            success=False,
-        )
+        write_audit(db, action="login.failure", username=username, details="Invalid credentials", success=False)
         return api_error("UNAUTHORIZED", "Invalid username or password.", 401)
 
     user.last_login = utcnow()
     db.commit()
     token = issue_token(db, user)
     write_audit(db, action="login.success", user=user, details="Session issued")
-    return jsonify({
-        "token": token,
-        "user": serialize_user(user),
-    })
-
+    return jsonify({"token": token, "user": serialize_user(user)})
 
 @app.route("/api/auth/logout", methods=["POST"])
 def logout():
-    # Idempotent: always succeed locally even if the token is already gone.
     auth_header = request.headers.get('Authorization', '')
     token = auth_header.split("Bearer ", 1)[-1].strip() if "Bearer " in auth_header else auth_header.strip()
     db = get_db()
@@ -187,7 +158,6 @@ def logout():
     if user:
         write_audit(db, action="logout", user=user, details="Session revoked")
     return jsonify({"status": "logged out"})
-
 
 @app.route("/api/auth/me")
 @login_required
@@ -209,7 +179,6 @@ def broadcast_new_alert(alert_obj):
     })
 
 # --- CORE SIEM ROUTES ---
-
 @app.route("/api/dashboard")
 @login_required
 @require_permission("dashboard.read")
@@ -217,7 +186,6 @@ def get_dashboard():
     range_val = request.args.get("range", "24h")
     db = get_db()
     
-    # NEW: Expanded Mega-Time Ranges
     delta_map = {
         "1h": timedelta(hours=1), "12h": timedelta(hours=12), "24h": timedelta(hours=24), 
         "3d": timedelta(days=3), "7d": timedelta(days=7), "15d": timedelta(days=15), 
@@ -230,8 +198,6 @@ def get_dashboard():
     alerts = alerts_query.order_by(Alert.event_timestamp.desc()).all()
     total_events = db.query(Event).filter(Event.timestamp >= start_time).count()
 
-    # By fetching all alerts first, we can derive counts in memory
-    # instead of hitting the database multiple times for the same dataset.
     high_or_above = sum(1 for a in alerts if a.severity.lower() in ['high', 'critical'])
     critical_alerts = sum(1 for a in alerts if a.severity.lower() == "critical")
     high_alerts = sum(1 for a in alerts if a.severity.lower() == "high")
@@ -249,7 +215,6 @@ def get_dashboard():
     critical_assets = db.query(func.count(Asset.id)).filter(func.upper(Asset.criticality) == "CRITICAL").scalar() or 0
     web_findings = db.query(func.count(WebFinding.id)).scalar() or 0
 
-    # Pre-calculate tactic counts for MITRE heatmap (skip empty tactics)
     tactic_counts = [
         {"name": t, "value": c}
         for t, c in db.query(Alert.tactic, func.count(Alert.id))
@@ -406,15 +371,8 @@ def ingest_logs_route():
     result = _run_ingest_pipeline(payload, source_name="webhook", source_type="cloud")
     return jsonify(result)
 
-
-# --- SOAR ACTION ENDPOINT ---
-# NOTE: This does not yet call a real firewall/EDR API. It's stubbed so the
-# UI flow works end-to-end; wiring a real integration (see integrations/)
-# is tracked as a follow-up. The response says so explicitly so nothing
-# downstream (reports, audit logs) can mistake this for a real action.
 ALLOWED_SOAR_ACTIONS = {
     "BLOCK_IP", "ISOLATE_HOST", "DISABLE_USER", "MARK_FALSE_POSITIVE", "CLOSE_ALERT",
-    # UI legacy labels
     "Isolate Host", "Block IP",
 }
 
@@ -463,7 +421,6 @@ def generate_report(alert_id):
         return "Not found", 404
 
     prepared_by = (getattr(user, "username", None) or "Manan Mandal").strip()
-    # Prefer named SOC engineer branding when the logged-in user is the demo admin.
     if prepared_by.lower() in {"admin", "administrator"}:
         prepared_by = "Manan Mandal"
 
@@ -482,6 +439,7 @@ def generate_report(alert_id):
     response.headers["Expires"] = "0"
     response.headers["X-Incident-Report-Template"] = "IR-TEMPLATE-2026.2"
     return response
+
 # --- ADMIN, YARA & SUPPRESSION ---
 @app.route("/api/admin/data")
 @login_required
@@ -565,7 +523,6 @@ def _yara_template(rule_name: str) -> str:
         "}\n"
     )
 
-
 @app.route("/api/admin/rules")
 @login_required
 @require_permission("yara.read")
@@ -606,7 +563,6 @@ def save_rule():
     scanner.reload_rules()
     return jsonify({"status": "deployed", "file": filename})
 
-
 @app.route("/api/admin/rules/create", methods=["POST"])
 @login_required
 @require_permission("yara.write")
@@ -628,7 +584,6 @@ def create_rule():
         f.write(str(content))
     scanner.reload_rules()
     return jsonify({"status": "created", "file": filename, "content": content})
-
 
 @app.route("/api/admin/rules/upload", methods=["POST"])
 @login_required
@@ -681,7 +636,6 @@ def sync_feeds():
     summary = sync_ioc_feeds()
     return jsonify({"status": "success", "summary": summary})
 
-
 # --- USER MANAGEMENT (admin only) ---
 @app.route("/api/admin/users", methods=["GET"])
 @login_required
@@ -691,7 +645,6 @@ def list_users():
     return jsonify({
         "users": [serialize_user(u) for u in db.query(User).order_by(User.id).all()]
     })
-
 
 @app.route("/api/admin/users", methods=["POST"])
 @login_required
@@ -716,7 +669,6 @@ def create_user():
     db.commit()
     db.refresh(user)
     return jsonify(serialize_user(user)), 201
-
 
 @app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
 @login_required
@@ -746,7 +698,6 @@ def update_user_role(user_id):
     revoke_all_tokens_for_user(db, user.id)  # force re-login so new role takes effect immediately
     return jsonify(serialize_user(user))
 
-
 @app.route("/api/admin/users/<int:user_id>/deactivate", methods=["POST"])
 @login_required
 @require_permission("users.write")
@@ -768,7 +719,6 @@ def deactivate_user(user_id):
     revoke_all_tokens_for_user(db, user.id)
     return jsonify({"status": "deactivated", "id": user.id})
 
-
 @app.route("/api/admin/users/<int:user_id>/activate", methods=["POST"])
 @login_required
 @require_permission("users.write")
@@ -780,7 +730,6 @@ def activate_user(user_id):
     user.is_active = True
     db.commit()
     return jsonify(serialize_user(user))
-
 
 @app.route("/api/admin/users/<int:user_id>/reset_password", methods=["POST"])
 @login_required
@@ -801,10 +750,7 @@ def reset_user_password(user_id):
     revoke_all_tokens_for_user(db, user.id)
     return jsonify({"status": "password_reset", "id": user.id})
 
-
 # --- INGEST KEY MANAGEMENT (admin only) ---
-# These keys authenticate external systems (Vercel log drains, custom apps)
-# pushing logs in — separate from user login since the sender isn't a person.
 @app.route("/api/admin/ingest_keys", methods=["GET"])
 @login_required
 @require_permission("ingest_keys.read")
@@ -815,8 +761,6 @@ def list_ingest_keys():
         "keys": [
             {
                 "id": k.id, "name": k.name, "source": k.source,
-                # Only the last 4 characters are shown after creation —
-                # the full key is returned once, at creation time only.
                 "key_preview": f"...{k.key[-4:]}",
                 "is_active": k.is_active,
                 "created_at": k.created_at.isoformat(),
@@ -824,7 +768,6 @@ def list_ingest_keys():
             } for k in keys
         ]
     })
-
 
 @app.route("/api/admin/ingest_keys", methods=["POST"])
 @login_required
@@ -839,9 +782,8 @@ def create_ingest_key_route():
     entry = create_ingest_key(db, name=name, source=source, org_id=g.current_user.org_id)
     return jsonify({
         "id": entry.id, "name": entry.name, "source": entry.source,
-        "key": entry.key,  # full key shown ONCE, here, at creation
+        "key": entry.key, 
     }), 201
-
 
 @app.route("/api/admin/ingest_keys/<int:key_id>/revoke", methods=["POST"])
 @login_required
@@ -852,11 +794,8 @@ def revoke_ingest_key_route(key_id):
         return api_error("NOT_FOUND", "Key not found.", 404)
     return jsonify({"status": "revoked", "id": key_id})
 
-
 # --- REAL-TIME LOG INGESTION (external sources) ---
 def _run_ingest_pipeline(payload, source_name: str, source_type: str):
-    """Shared by every ingestion entrypoint (manual, Vercel, ingest_logs) so
-    they all get identical detection + IOC matching + live WebSocket alerts."""
     db = get_db()
     evaluator = RuleEvaluator(str(DEFAULT_RULE_FILE))
     added, skipped, new_events = ingest_log_payload(db, payload, source_name=source_name, source_type=source_type)
@@ -871,36 +810,20 @@ def _run_ingest_pipeline(payload, source_name: str, source_type: str):
         "alerts_added": alerts_added,
     }
 
-
 @app.route("/api/ingest/vercel", methods=["POST"])
 @ingest_key_required
 def ingest_vercel():
-    """Configure this as a Vercel Log Drain URL:
-        https://<your-host>/api/ingest/vercel?key=<ingest key>
-    (or send the key in an 'X-Ingest-Key' header if your drain config
-    supports custom headers). Vercel POSTs a JSON array of log entries —
-    each has 'timestamp' (epoch ms), 'message', 'source', 'host', etc.,
-    which normalize_event_record() already knows how to read.
-    """
     payload = request.get_json(silent=True)
     if payload is None:
         return jsonify({"error": "Invalid or missing JSON body"}), 400
     result = _run_ingest_pipeline(payload, source_name=f"vercel:{g.ingest_key.name}", source_type="cloud")
     return jsonify(result)
 
-
 @app.route("/api/ingest/manual", methods=["POST"])
 @login_required
 @require_permission("events.write")
 def ingest_manual():
-    """For pasting logs directly in the UI. Accepts either:
-      - {"logs": [...]} / a raw JSON array of structured log objects, or
-      - {"raw_text": "line1\\nline2\\n..."} plain log lines, one per line —
-        each line becomes an event with the current time as its timestamp
-        and the line itself as the message (best-effort, no field parsing).
-    """
     data = request.get_json(silent=True) or {}
-
     if "raw_text" in data:
         now = datetime.utcnow().isoformat() + "Z"
         lines = [line.strip() for line in (data.get("raw_text") or "").splitlines() if line.strip()]
@@ -915,8 +838,6 @@ def ingest_manual():
     return jsonify(result)
 
 # --- DEBUG SIMULATOR ---
-# Gated behind both auth AND an explicit env flag, and refuses to run at all
-# unless debug mode is on — this must never be reachable in a real deployment.
 @app.route("/api/debug/trigger_alert")
 @login_required
 @require_permission("system.write")
@@ -942,19 +863,33 @@ register_enterprise_routes(
     broadcast_new_alert=broadcast_new_alert,
 )
 
+# --- SOCKET.IO EVENT HANDLERS ---
+@socketio.on('connect')
+def handle_connect():
+    """Accept incoming WebSocket connections."""
+    print(f"[Socket.IO] Client connected: {request.sid}")
+    emit('connected', {'data': 'Connected to Threat Hunting SIEM', 'sid': request.sid})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnections."""
+    print(f"[Socket.IO] Client disconnected: {request.sid}")
+
+@socketio.on('ping')
+def handle_ping():
+    """Echo pings from client (heartbeat)."""
+    emit('pong', {'timestamp': datetime.utcnow().isoformat()})
+
 # Web scan progress / lifecycle events over Socket.IO
 from .web_scanner import set_broadcast as set_webscan_broadcast
-
 set_webscan_broadcast(lambda event, payload: socketio.emit(event, payload))
 
 # Start background log tailer (offset-tracked via IngestionState).
 start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))
 
-
 if __name__ == "__main__":
-    # Default to localhost so Windows Firewall does not require "Private network"
-    # access on managed/org laptops. Override with HOST=0.0.0.0 only if needed.
-    host = os.environ.get("HOST", "127.0.0.1")
+    # Force 0.0.0.0 so Docker can route traffic to your Mac
+    host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("TH_FLASK_DEBUG", "false").lower() == "true"
-    socketio.run(app, host=host, port=port, debug=debug_mode, allow_unsafe_werkzeug=debug_mode) 
+    socketio.run(app, host=host, port=port, debug=debug_mode, allow_unsafe_werkzeug=True)

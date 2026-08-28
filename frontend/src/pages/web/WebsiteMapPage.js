@@ -153,7 +153,10 @@ export default function WebsiteMapPage() {
       // Still connect briefly for late events when status unknown
     }
 
-    const socket = io(API_BASE_URL, {
+    // Connect via nginx proxy on current origin (port 80)
+    const socketURL = window.location.origin;
+    const socket = io(socketURL, {
+      path: "/socket.io/",
       transports: ["websocket", "polling"],
       auth: getStoredToken() ? { token: getStoredToken() } : undefined,
     });
