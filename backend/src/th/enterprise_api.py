@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import g, jsonify, request
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 
 from .audit import write_audit
 from .correlation import correlate_new_alerts, incident_timeline
@@ -27,6 +28,8 @@ from .db import (
     WebScanEvent,
     WebScanNode,
     WebTarget,
+    DATABASE_PATH,
+    engine,
     get_db,
     get_org_settings,
     get_user_for_token,
@@ -330,6 +333,186 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         write_audit(db, action="alert.assign", user=g.current_user,
                     resource_type="alert", resource_id=alert_id, details=f"assigned_to={assigned}")
         return jsonify(_serialize_alert(alert))
+
+    @app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
+    @login_required
+    @require_permission("alerts.write")
+    def delete_alert(alert_id):
+        db = get_db()
+        alert = db.get(Alert, alert_id)
+        if not alert:
+            return _err("NOT_FOUND", "Alert not found.", 404)
+        # Detach from case links if any
+        db.query(CaseAlert).filter_by(alert_id=alert_id).delete(synchronize_session=False)
+        db.delete(alert)
+        db.commit()
+        write_audit(
+            db,
+            action="alert.delete",
+            user=g.current_user,
+            resource_type="alert",
+            resource_id=alert_id,
+            details=f"Deleted alert #{alert_id} ({alert.severity} - {alert.description})",
+            success=True,
+        )
+        return jsonify({"status": "success", "deleted_alert_id": alert_id})
+
+    @app.route("/api/alerts/purge", methods=["POST"])
+    @login_required
+    @require_permission("alerts.write")
+    def purge_alerts():
+        data = request.get_json(silent=True) or {}
+        status_filter = (data.get("status") or "").upper()
+        older_than_days = data.get("older_than_days")
+
+        db = get_db()
+        q = db.query(Alert)
+
+        if status_filter == "FALSE_POSITIVE":
+            q = q.filter(Alert.status == "FALSE_POSITIVE")
+        elif status_filter == "CLOSED":
+            q = q.filter(Alert.status.in_(["CLOSED", "RESOLVED"]))
+        elif status_filter == "ALL":
+            pass
+        elif status_filter:
+            q = q.filter(Alert.status == status_filter)
+
+        if older_than_days:
+            try:
+                cutoff = utcnow() - timedelta(days=int(older_than_days))
+                q = q.filter(Alert.created_at < cutoff)
+            except Exception:
+                pass
+
+        alert_ids = [a.id for a in q.all()]
+        if alert_ids:
+            db.query(CaseAlert).filter(CaseAlert.alert_id.in_(alert_ids)).delete(synchronize_session=False)
+        deleted_count = q.delete(synchronize_session=False)
+        db.commit()
+
+        write_audit(
+            db,
+            action="alerts.purge",
+            user=g.current_user,
+            resource_type="alerts",
+            resource_id="bulk",
+            details=f"Purged {deleted_count} alerts with filter status={status_filter}",
+            success=True,
+        )
+        return jsonify({"status": "success", "deleted_count": deleted_count})
+
+    @app.route("/api/events/purge", methods=["POST"])
+    @login_required
+    @require_permission("events.write")
+    def purge_events():
+        data = request.get_json(silent=True) or {}
+        source_name = data.get("source_name")
+        all_uploads = data.get("all_uploads", False)
+        older_than_days = data.get("older_than_days")
+
+        db = get_db()
+        q = db.query(Event)
+
+        if source_name:
+            q = q.filter(Event.source_name == source_name)
+        elif all_uploads:
+            q = q.filter(Event.source_name.like("upload:%"))
+
+        if older_than_days:
+            try:
+                cutoff = utcnow() - timedelta(days=int(older_than_days))
+                q = q.filter(Event.timestamp < cutoff)
+            except Exception:
+                pass
+
+        deleted_count = q.delete(synchronize_session=False)
+
+        # Remove corresponding IngestionState tracking records
+        if source_name:
+            db.query(IngestionState).filter(IngestionState.source == source_name).delete(synchronize_session=False)
+        elif all_uploads:
+            db.query(IngestionState).filter(IngestionState.source.like("upload:%")).delete(synchronize_session=False)
+
+        db.commit()
+
+        write_audit(
+            db,
+            action="events.purge",
+            user=g.current_user,
+            resource_type="events",
+            resource_id="bulk",
+            details=f"Purged {deleted_count} events (source={source_name}, all_uploads={all_uploads})",
+            success=True,
+        )
+        return jsonify({"status": "success", "deleted_count": deleted_count})
+
+    @app.route("/api/database/maintenance", methods=["GET"])
+    @login_required
+    def get_database_maintenance():
+        db = get_db()
+        db_file = str(DATABASE_PATH)
+        size_bytes = os.path.getsize(db_file) if os.path.exists(db_file) else 0
+        size_mb = round(size_bytes / (1024 * 1024), 2)
+
+        total_events = db.query(func.count(Event.id)).scalar() or 0
+        total_alerts = db.query(func.count(Alert.id)).scalar() or 0
+        false_positive_alerts = db.query(func.count(Alert.id)).filter(Alert.status == "FALSE_POSITIVE").scalar() or 0
+        closed_alerts = db.query(func.count(Alert.id)).filter(Alert.status.in_(["CLOSED", "RESOLVED"])).scalar() or 0
+
+        # Discover individual uploaded file sources
+        uploaded_rows = (
+            db.query(Event.source_name, func.count(Event.id))
+            .filter(Event.source_name.like("upload:%"))
+            .group_by(Event.source_name)
+            .all()
+        )
+        uploaded_sources = [
+            {
+                "source_name": r[0],
+                "filename": r[0].replace("upload:", ""),
+                "event_count": r[1],
+            }
+            for r in uploaded_rows
+        ]
+
+        return jsonify({
+            "db_size_mb": size_mb,
+            "db_size_bytes": size_bytes,
+            "total_events": total_events,
+            "total_alerts": total_alerts,
+            "false_positive_alerts": false_positive_alerts,
+            "closed_alerts": closed_alerts,
+            "uploaded_sources": uploaded_sources,
+        })
+
+    @app.route("/api/database/vacuum", methods=["POST"])
+    @login_required
+    @require_permission("system.write")
+    def vacuum_database():
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text("VACUUM"))
+            db_file = str(DATABASE_PATH)
+            new_size_bytes = os.path.getsize(db_file) if os.path.exists(db_file) else 0
+            new_size_mb = round(new_size_bytes / (1024 * 1024), 2)
+
+            write_audit(
+                get_db(),
+                action="database.vacuum",
+                user=g.current_user,
+                resource_type="database",
+                resource_id="sqlite",
+                details=f"Executed VACUUM. Reclaimed database size: {new_size_mb} MB",
+                success=True,
+            )
+            return jsonify({
+                "status": "success",
+                "message": "Database vacuumed and space reclaimed successfully.",
+                "db_size_mb": new_size_mb,
+            })
+        except Exception as e:
+            return jsonify({"error": f"Vacuum failed: {str(e)}"}), 500
+
 
     # -------- Cases --------
     @app.route("/api/cases")

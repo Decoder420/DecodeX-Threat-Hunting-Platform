@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import api, { uploadLogFile } from "../api";
+import api, { uploadLogFile, purgeEvents, getDatabaseMaintenance, vacuumDatabase } from "../api";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import { hasPermission } from "../auth";
@@ -46,6 +46,12 @@ export default function HuntingPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState("");
+
+  // Database Maintenance & Cleanup modal states
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [dbStats, setDbStats] = useState(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [maintenanceMsg, setMaintenanceMsg] = useState("");
 
   const canWrite = hasPermission("events.write");
 
@@ -109,7 +115,6 @@ export default function HuntingPage() {
       const res = await uploadLogFile(selectedFile);
       setUploadResult(res.data);
       setSelectedFile(null);
-      // Refresh the events list and ingestion status automatically
       await load(q);
       await loadIngest();
     } catch (err) {
@@ -121,6 +126,88 @@ export default function HuntingPage() {
       setUploadError(typeof errorMsg === "object" ? JSON.stringify(errorMsg) : String(errorMsg));
     } finally {
       setUploading(false);
+    }
+  };
+
+  const openMaintenanceModal = async () => {
+    setShowMaintenanceModal(true);
+    setMaintenanceMsg("");
+    setMaintenanceLoading(true);
+    try {
+      const res = await getDatabaseMaintenance();
+      setDbStats(res.data);
+    } catch {
+      setDbStats(null);
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const handlePurgeSingleSource = async (sourceName) => {
+    const filename = sourceName.replace("upload:", "");
+    if (!window.confirm(`Delete all events ingested from '${filename}'? This will permanently remove them from the database to save space.`)) {
+      return;
+    }
+    try {
+      const res = await purgeEvents({ source_name: sourceName });
+      window.alert(`Successfully purged ${res.data.deleted_count || 0} events from '${filename}'.`);
+      await load(q);
+      await loadIngest();
+      if (showMaintenanceModal) openMaintenanceModal();
+    } catch {
+      window.alert("Failed to purge events.");
+    }
+  };
+
+  const handlePurgeAllUploads = async () => {
+    if (!window.confirm("Purge ALL uploaded log file dumps? This will delete all events uploaded via files.")) {
+      return;
+    }
+    setMaintenanceLoading(true);
+    try {
+      const res = await purgeEvents({ all_uploads: true });
+      setMaintenanceMsg(`Purged ${res.data.deleted_count || 0} events across all uploaded files.`);
+      await load(q);
+      await loadIngest();
+      const updated = await getDatabaseMaintenance();
+      setDbStats(updated.data);
+    } catch {
+      setMaintenanceMsg("Failed to purge uploaded logs.");
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const handlePurgeOldLogs = async (days) => {
+    if (!window.confirm(`Purge all telemetry logs older than ${days} days?`)) {
+      return;
+    }
+    setMaintenanceLoading(true);
+    try {
+      const res = await purgeEvents({ older_than_days: days });
+      setMaintenanceMsg(`Purged ${res.data.deleted_count || 0} older events.`);
+      await load(q);
+      await loadIngest();
+      const updated = await getDatabaseMaintenance();
+      setDbStats(updated.data);
+    } catch {
+      setMaintenanceMsg("Failed to purge old logs.");
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const handleVacuumDatabase = async () => {
+    setMaintenanceLoading(true);
+    try {
+      const res = await vacuumDatabase();
+      setMaintenanceMsg(`Database optimized! Current size: ${res.data.db_size_mb} MB.`);
+      const updated = await getDatabaseMaintenance();
+      setDbStats(updated.data);
+    } catch {
+      setMaintenanceMsg("Vacuum failed. Only admin users can execute VACUUM.");
+    } finally {
+      setMaintenanceLoading(false);
     }
   };
 
@@ -148,13 +235,18 @@ export default function HuntingPage() {
         <div>
           <h1>Threat Hunting &amp; Telemetry Workbench</h1>
           <p className="page-shell__copy">
-            Query normalized endpoint telemetry, execute proactive hunting playbooks, upload security log dumps, and monitor real-time ingestion watchers.
+            Query normalized endpoint telemetry, execute proactive hunting playbooks, upload security log dumps, and manage data lifecycle to keep the database lightweight.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {canWrite ? (
             <Button size="sm" variant="primary" onClick={() => { setShowUploadModal(true); setUploadResult(null); setUploadError(""); }}>
               📤 Upload Log File (JSON)
+            </Button>
+          ) : null}
+          {canWrite ? (
+            <Button size="sm" onClick={openMaintenanceModal} title="Database Health and Log Purging">
+              🧹 DB Health &amp; Cleanup
             </Button>
           ) : null}
           <Button size="sm" onClick={() => load(q)}>
@@ -196,9 +288,12 @@ export default function HuntingPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
           <h2 style={{ margin: 0 }}>Log Ingestion Engine</h2>
           {canWrite ? (
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Button size="sm" onClick={() => { setShowUploadModal(true); setUploadResult(null); setUploadError(""); }}>
                 📁 Upload JSON Logs
+              </Button>
+              <Button size="sm" onClick={openMaintenanceModal}>
+                🧹 Prune Logs
               </Button>
               <Button size="sm" variant="primary" onClick={runIngest} disabled={ingesting}>
                 {ingesting ? "Ingesting…" : "⚡ Run Ingest Cycle"}
@@ -226,7 +321,7 @@ export default function HuntingPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
               {(ingestion.sources || []).map((s) => (
                 <div
                   key={s.source}
@@ -237,7 +332,25 @@ export default function HuntingPage() {
                     borderRadius: 6,
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{s.source}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.85rem", wordBreak: "break-all" }}>{s.source}</div>
+                    {canWrite && s.source.startsWith("upload:") ? (
+                      <button
+                        onClick={() => handlePurgeSingleSource(s.source)}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--danger, #ff5c7a)",
+                          cursor: "pointer",
+                          fontSize: "0.85rem",
+                          padding: "0 2px",
+                        }}
+                        title="Delete this uploaded log file and its events"
+                      >
+                        🗑️
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="muted" style={{ fontSize: "0.78rem", marginTop: 4 }}>
                     Status: <Badge tone="ok">{s.status}</Badge> · {s.event_count} events
                   </div>
@@ -554,6 +667,143 @@ export default function HuntingPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* DATABASE MAINTENANCE & LOG PURGING MODAL */}
+      {showMaintenanceModal ? (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => setShowMaintenanceModal(false)}
+        >
+          <div
+            className="surface"
+            style={{ width: "100%", maxWidth: 620, padding: 24, borderRadius: 12, maxHeight: "90vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+              <div>
+                <span className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase" }}>DATABASE HYGIENE &amp; RETENTION</span>
+                <h2 style={{ margin: "4px 0" }}>Database Health &amp; Data Cleanup</h2>
+              </div>
+              <Button size="sm" onClick={() => setShowMaintenanceModal(false)}>✕ Close</Button>
+            </div>
+
+            <p className="muted" style={{ fontSize: "0.85rem", marginTop: 0, marginBottom: 16 }}>
+              Purge temporary log dumps and compress the database to keep DecodeX fast, lightweight, and healthy.
+            </p>
+
+            {maintenanceMsg ? (
+              <div style={{ padding: "10px 14px", background: "rgba(62, 224, 162, 0.1)", border: "1px solid var(--ok, #3ee0a2)", borderRadius: 6, marginBottom: 14, color: "var(--ok, #3ee0a2)", fontSize: "0.85rem" }}>
+                ✅ {maintenanceMsg}
+              </div>
+            ) : null}
+
+            {/* LIVE DB STATS */}
+            {dbStats ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 18 }}>
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8, textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Database Size</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--accent, #3ee0a2)" }}>{dbStats.db_size_mb} MB</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8, textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Total Events</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{dbStats.total_events}</div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8, textAlign: "center" }}>
+                  <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Total Alerts</div>
+                  <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{dbStats.total_alerts}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="muted" style={{ marginBottom: 14 }}>Loading database health metrics…</div>
+            )}
+
+            {/* UPLOADED FILES SECTION */}
+            <div style={{ marginBottom: 18 }}>
+              <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>
+                Uploaded Log Files ({dbStats?.uploaded_sources?.length || 0})
+              </div>
+              {dbStats?.uploaded_sources?.length ? (
+                <div style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {dbStats.uploaded_sources.map((u) => (
+                    <div
+                      key={u.source_name}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "8px 12px",
+                        background: "rgba(255, 255, 255, 0.02)",
+                        border: "1px solid var(--line, rgba(255, 255, 255, 0.06))",
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div>
+                        <strong>📄 {u.filename}</strong>
+                        <span className="muted" style={{ fontSize: "0.78rem", marginLeft: 8 }}>({u.event_count} events)</span>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handlePurgeSingleSource(u.source_name)}
+                        style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.4)" }}
+                      >
+                        🗑️ Delete File
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="muted" style={{ fontSize: "0.85rem" }}>No uploaded log files currently consuming space.</div>
+              )}
+            </div>
+
+            {/* BULK CLEANUP ACTIONS */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, borderTop: "1px solid var(--line, rgba(255,255,255,0.08))", paddingTop: 14 }}>
+              <div className="muted" style={{ fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase" }}>Bulk Maintenance Actions</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button
+                  size="sm"
+                  disabled={maintenanceLoading || !dbStats?.uploaded_sources?.length}
+                  onClick={handlePurgeAllUploads}
+                  style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.4)" }}
+                >
+                  🗑️ Purge All Uploaded Dumps
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={maintenanceLoading}
+                  onClick={() => handlePurgeOldLogs(30)}
+                >
+                  ⏱️ Purge Logs Older Than 30 Days
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={maintenanceLoading}
+                  onClick={handleVacuumDatabase}
+                >
+                  ⚡ Compact &amp; Vacuum Database
+                </Button>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+              <Button onClick={() => setShowMaintenanceModal(false)}>Close</Button>
+            </div>
           </div>
         </div>
       ) : null}

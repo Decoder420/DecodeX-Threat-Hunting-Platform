@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react";
-import api, { getAdminData, syncFeeds } from "../api";
+import api, {
+  getAdminData,
+  syncFeeds,
+  purgeAlerts,
+  purgeEvents,
+  getDatabaseMaintenance,
+  vacuumDatabase,
+} from "../api";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 
@@ -9,6 +16,8 @@ export default function AdminPanel() {
   const [sigmaFile, setSigmaFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [dbHealth, setDbHealth] = useState(null);
+  const [healthMsg, setHealthMsg] = useState("");
   const [suppression, setSuppression] = useState({
     name: "",
     rule_id: "",
@@ -20,8 +29,12 @@ export default function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await getAdminData();
-      setAdminData(res.data);
+      const [adminRes, healthRes] = await Promise.allSettled([
+        getAdminData(),
+        getDatabaseMaintenance(),
+      ]);
+      if (adminRes.status === "fulfilled") setAdminData(adminRes.value.data);
+      if (healthRes.status === "fulfilled") setDbHealth(healthRes.value.data);
     } catch {
       setAdminData(null);
     } finally {
@@ -58,7 +71,6 @@ export default function AdminPanel() {
     if (!suppression.field_value) return;
     try {
       await api.post("/suppression", suppression);
-      window.alert("Suppression rule activated successfully.");
       setSuppression({
         name: "",
         rule_id: "",
@@ -68,7 +80,43 @@ export default function AdminPanel() {
       });
       loadData();
     } catch {
-      window.alert("Failed to save suppression rule.");
+      window.alert("Failed to add suppression rule.");
+    }
+  };
+
+  const handlePurgeFalsePositives = async () => {
+    if (!window.confirm("Purge all FALSE_POSITIVE alerts? This permanently removes them to keep the database lightweight.")) {
+      return;
+    }
+    try {
+      const res = await purgeAlerts({ status: "FALSE_POSITIVE" });
+      setHealthMsg(`Successfully purged ${res.data.deleted_count || 0} false positive alerts.`);
+      loadData();
+    } catch {
+      setHealthMsg("Failed to purge false positives.");
+    }
+  };
+
+  const handlePurgeAllUploads = async () => {
+    if (!window.confirm("Purge all events from uploaded log files? This will remove all temporary log dumps.")) {
+      return;
+    }
+    try {
+      const res = await purgeEvents({ all_uploads: true });
+      setHealthMsg(`Successfully purged ${res.data.deleted_count || 0} uploaded events.`);
+      loadData();
+    } catch {
+      setHealthMsg("Failed to purge uploaded logs.");
+    }
+  };
+
+  const handleVacuum = async () => {
+    try {
+      const res = await vacuumDatabase();
+      setHealthMsg(`Database optimized! Reclaimed space. Current disk size: ${res.data.db_size_mb} MB.`);
+      loadData();
+    } catch {
+      setHealthMsg("Vacuum failed.");
     }
   };
 
@@ -259,6 +307,72 @@ export default function AdminPanel() {
         ) : (
           <div className="muted">No active suppressions configured. All detections will trigger alerts.</div>
         )}
+      </div>
+
+      {/* DATABASE HEALTH, HYGIENE & SPACE RECLAMATION */}
+      <div className="surface" style={{ padding: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <h2 style={{ margin: "0 0 4px 0" }}>Database Hygiene &amp; Space Reclamation</h2>
+            <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+              Monitor SQLite disk usage, prune false positives or temporary log dumps, and execute VACUUM compaction to keep the database lightweight.
+            </p>
+          </div>
+          <Button size="sm" onClick={loadData}>↻ Refresh Stats</Button>
+        </div>
+
+        {healthMsg ? (
+          <div style={{ padding: "10px 14px", background: "rgba(62, 224, 162, 0.1)", border: "1px solid var(--ok, #3ee0a2)", borderRadius: 6, marginBottom: 14, color: "var(--ok, #3ee0a2)", fontSize: "0.85rem" }}>
+            ✅ {healthMsg}
+          </div>
+        ) : null}
+
+        {dbHealth ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8 }}>
+              <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Database File Size</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--accent, #3ee0a2)" }}>{dbHealth.db_size_mb} MB</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8 }}>
+              <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Total Stored Events</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{dbHealth.total_events}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8 }}>
+              <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Total Alerts</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{dbHealth.total_alerts}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.03)", padding: 12, borderRadius: 8 }}>
+              <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>False Positives</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--danger, #ff5c7a)" }}>{dbHealth.false_positive_alerts}</div>
+            </div>
+          </div>
+        ) : null}
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Button
+            size="sm"
+            onClick={handlePurgeFalsePositives}
+            style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.4)" }}
+            disabled={!dbHealth?.false_positive_alerts}
+          >
+            🧹 Purge False Positives ({dbHealth?.false_positive_alerts || 0})
+          </Button>
+          <Button
+            size="sm"
+            onClick={handlePurgeAllUploads}
+            style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.4)" }}
+            disabled={!dbHealth?.uploaded_sources?.length}
+          >
+            🗑️ Purge All Uploaded Log Dumps ({dbHealth?.uploaded_sources?.length || 0} files)
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={handleVacuum}
+          >
+            ⚡ Compact &amp; Vacuum Database
+          </Button>
+        </div>
       </div>
     </div>
   );

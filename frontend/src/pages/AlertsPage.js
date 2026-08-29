@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api, { API_BASE_URL } from "../api";
+import api, { API_BASE_URL, deleteAlert, purgeAlerts } from "../api";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import AiTriageDrawer from "../components/AiTriageDrawer";
@@ -60,6 +60,34 @@ export default function AlertsPage() {
       load();
     } catch {
       window.alert("Unable to create case.");
+    }
+  };
+
+  const handleDeleteAlert = async (alertId) => {
+    if (!window.confirm(`Permanently delete alert #${alertId}? This will remove it from the database to save space.`)) {
+      return;
+    }
+    try {
+      await deleteAlert(alertId);
+      setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+      if (selectedAlert && selectedAlert.id === alertId) {
+        setSelectedAlert(null);
+      }
+    } catch {
+      window.alert("Failed to delete alert.");
+    }
+  };
+
+  const handlePurgeFalsePositives = async () => {
+    if (!window.confirm("Purge all FALSE_POSITIVE alerts? This permanently removes them to keep the database lightweight and healthy.")) {
+      return;
+    }
+    try {
+      const res = await purgeAlerts({ status: "FALSE_POSITIVE" });
+      window.alert(`Cleaned up ${res.data.deleted_count || 0} false positive alerts.`);
+      load();
+    } catch {
+      window.alert("Failed to purge false positive alerts.");
     }
   };
 
@@ -166,7 +194,10 @@ export default function AlertsPage() {
         (a.status || "").toUpperCase() === "CLOSED" ||
         (a.status || "").toUpperCase() === "RESOLVED"
     ).length;
-    return { total, open, investigating, critical, resolved };
+    const falsePositives = alerts.filter(
+      (a) => (a.status || "").toUpperCase() === "FALSE_POSITIVE"
+    ).length;
+    return { total, open, investigating, critical, resolved, falsePositives };
   }, [alerts]);
 
   return (
@@ -178,7 +209,17 @@ export default function AlertsPage() {
             Live detection stream with dynamic risk scoring, MITRE ATT&amp;CK correlation, and automated case creation.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {canWrite && kpis.falsePositives > 0 ? (
+            <Button
+              size="sm"
+              onClick={handlePurgeFalsePositives}
+              style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.4)" }}
+              title="Delete all false positives from database"
+            >
+              🧹 Purge False Positives ({kpis.falsePositives})
+            </Button>
+          ) : null}
           <Button size="sm" onClick={load}>
             ↻ Refresh
           </Button>
@@ -364,6 +405,16 @@ export default function AlertsPage() {
                       <Button size="sm" onClick={() => downloadReport(a.id)}>
                         PDF
                       </Button>
+                      {canWrite ? (
+                        <Button
+                          size="sm"
+                          onClick={() => handleDeleteAlert(a.id)}
+                          style={{ color: "var(--danger, #ff5c7a)", borderColor: "rgba(255, 92, 122, 0.3)" }}
+                          title="Delete alert permanently"
+                        >
+                          🗑️
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -542,6 +593,14 @@ export default function AlertsPage() {
               <Button onClick={() => downloadReport(selectedAlert.id)}>
                 📄 Download Incident Report (PDF)
               </Button>
+              {canWrite ? (
+                <Button
+                  onClick={() => handleDeleteAlert(selectedAlert.id)}
+                  style={{ color: "var(--danger, #ff5c7a)", borderColor: "var(--danger, #ff5c7a)" }}
+                >
+                  🗑️ Delete Alert
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
