@@ -919,7 +919,12 @@ def ingest_upload_file():
 
     db = get_db()
     source_name = f"upload:{filename}"
-    result = _run_ingest_pipeline(payload, source_name=source_name, source_type="file_upload")
+    try:
+        result = _run_ingest_pipeline(payload, source_name=source_name, source_type="file_upload")
+    except Exception as e:
+        app.logger.exception("Failed to run ingest pipeline on uploaded file")
+        return jsonify({"error": f"Log scanning error: {str(e)}"}), 500
+
     result["filename"] = filename
 
     try:

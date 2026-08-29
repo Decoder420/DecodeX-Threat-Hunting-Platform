@@ -63,10 +63,11 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
     process = record.get("process") or record.get("event_type") or record.get("source") or record.get("type") or "request"
     
     # Extract method and path if present
-    method = proxy_meta.get("method") or record.get("method") or ""
-    path = proxy_meta.get("path") or record.get("path") or record.get("url") or ""
-    status_code = proxy_meta.get("statusCode") or record.get("statusCode") or ""
-    
+    method = proxy_meta.get("method") or record.get("method") or record.get("requestMethod") or record.get("httpMethod") or ""
+    path = proxy_meta.get("path") or record.get("path") or record.get("url") or record.get("requestPath") or record.get("uri") or ""
+    status_code = proxy_meta.get("statusCode") or record.get("statusCode") or record.get("responseStatusCode") or record.get("status") or ""
+    req_id = record.get("requestId") or record.get("id") or record.get("traceId") or ""
+
     commandline = (
         record.get("commandline")
         or record.get("message")
@@ -74,12 +75,18 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
         or record.get("text")
         or ""
     )
+    if req_id and commandline and f"[{req_id}]" not in commandline:
+        commandline = f"{commandline} [{req_id}]"
+    elif req_id and not commandline:
+        commandline = f"request [{req_id}]"
+
     ip = (
         record.get("ip")
         or record.get("source_ip")
         or record.get("client_ip")
         or proxy_meta.get("clientIp")
         or record.get("clientIp")
+        or record.get("x-forwarded-for")
         or ""
     )
     domain = record.get("domain") or record.get("request_host") or record.get("host") or ""
@@ -181,6 +188,7 @@ def ingest_log_payload(db, payload, source_name: str = "webhook", source_type: s
     skipped = 0
     new_events: list[Event] = []
     state = get_or_create_ingestion_state(db, source_name)
+    seen_in_batch = set()
 
     for record in records:
         try:
@@ -188,6 +196,21 @@ def ingest_log_payload(db, payload, source_name: str = "webhook", source_type: s
             if not event:
                 raise ValueError("invalid record")
         except (TypeError, ValueError, KeyError):
+            skipped += 1
+            continue
+
+        key = (
+            event.timestamp,
+            event.host,
+            event.user,
+            event.process,
+            event.commandline,
+            event.ip,
+            event.domain,
+            event.file_hash,
+            event.source_name,
+        )
+        if key in seen_in_batch:
             skipped += 1
             continue
 
@@ -210,12 +233,34 @@ def ingest_log_payload(db, payload, source_name: str = "webhook", source_type: s
             skipped += 1
             continue
 
+        seen_in_batch.add(key)
         db.add(event)
         new_events.append(event)
         added += 1
 
-    state.updated_at = utcnow()
-    db.commit()
+    try:
+        state.updated_at = utcnow()
+        db.commit()
+    except Exception:
+        db.rollback()
+        # Fallback: commit valid non-colliding events one by one
+        successfully_added: list[Event] = []
+        for ev in new_events:
+            try:
+                db.add(ev)
+                db.commit()
+                successfully_added.append(ev)
+            except Exception:
+                db.rollback()
+                skipped += 1
+        new_events = successfully_added
+        added = len(new_events)
+        try:
+            state.updated_at = utcnow()
+            db.commit()
+        except Exception:
+            db.rollback()
+
     return added, skipped, new_events
 
 def ingest_logs(db, sources: Iterable[dict] | None = None) -> tuple[int, int, list[Event]]:

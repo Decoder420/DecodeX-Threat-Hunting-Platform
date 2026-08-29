@@ -113,9 +113,12 @@ export default function HuntingPage() {
       await load(q);
       await loadIngest();
     } catch (err) {
-      setUploadError(
-        err.response?.data?.error || "Failed to upload and scan log file. Please check file format."
-      );
+      const errorMsg =
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to upload and scan log file.";
+      setUploadError(typeof errorMsg === "object" ? JSON.stringify(errorMsg) : String(errorMsg));
     } finally {
       setUploading(false);
     }
