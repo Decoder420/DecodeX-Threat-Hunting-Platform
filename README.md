@@ -1,11 +1,14 @@
 # DecodeX — Threat Hunting, SIEM & Web Application Security Platform
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CodeQL Security Analysis](https://github.com/Decoder420/Threat-Hunting-Platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/Decoder420/Threat-Hunting-Platform/actions/workflows/codeql.yml)
+[![Dependabot Enabled](https://img.shields.io/badge/Dependabot-Active-02569B?logo=dependabot&logoColor=white)](.github/dependabot.yml)
 [![Docker](https://img.shields.io/badge/Docker-Compose%20Ready-2496ED?logo=docker&logoColor=white)](docker-compose.yaml)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](backend/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](frontend/)
 [![OWASP ZAP](https://img.shields.io/badge/OWASP%20ZAP-v2.17.0-005EA2?logo=owasp&logoColor=white)](https://www.zaproxy.org/)
+[![Discussions](https://img.shields.io/badge/Discussions-Join%20Community-0969DA?logo=github)](https://github.com/Decoder420/Threat-Hunting-Platform/discussions)
+[![Sponsor](https://img.shields.io/badge/Sponsor-Decoder420-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Decoder420)
 
 **DecodeX** is an enterprise-grade Security Operations Center (SOC), Threat Hunting, and Web Application Security (DAST) platform developed by **DecodeX Security Technologies Private Limited**. 
 
@@ -115,6 +118,21 @@ flowchart TD
 
 ---
 
+## 📚 Technical Documentation Index
+
+Detailed technical specifications and architectural documentation are available in the [`docs/`](docs/) directory:
+
+- 🏛️ [**Architecture Overview**](docs/ARCHITECTURE.md) — System components, data pipelines, and lifecycle models.
+- ⚙️ [**Backend Technical Specs**](docs/BACKEND.md) — Flask application structure, SQLAlchemy models, and detection pipelines.
+- 💻 [**Frontend Architecture**](docs/FRONTEND.md) — React state management, design tokens, and route protection.
+- 🌐 [**Web Application Scanner Guide**](docs/WEB_SCANNER.md) — DAST orchestration, OWASP ZAP crawler, SSRF guardrails, and tree streaming.
+- 📡 [**Log Ingestion Engine**](docs/INGESTION.md) — Real-time watcher configuration, Sysmon normalization, and webhooks.
+- 🔐 [**RBAC & Permissions Model**](docs/RBAC.md) — Role definitions, permissions mapping, and session tokens.
+- 📑 [**REST API Documentation**](docs/API.md) — Comprehensive REST endpoints, headers, and request/response schemas.
+- 📊 [**Full Platform Report**](docs/FULL_PLATFORM_REPORT.md) — High-level enterprise summary and engineering review.
+
+---
+
 ## 🚀 Quickstart Guide
 
 ### Option 1: Docker Compose (Recommended)
@@ -197,9 +215,11 @@ The platform includes enterprise Role-Based Access Control (RBAC):
 Threat-Hunting-Platform/
 ├── .github/
 │   ├── dependabot.yml              # Automated dependency vulnerability updates
+│   ├── FUNDING.yml                 # GitHub Sponsors and funding configuration
 │   ├── SECURITY.md                 # Responsible disclosure policy
 │   └── workflows/
 │       ├── codeql.yml              # GitHub CodeQL SAST security scanning
+│       ├── dependabot-auto-triage.yml # Automated Dependabot labeling and triage
 │       └── deploy-gh-pages.yml     # Frontend demo deployment
 ├── backend/
 │   ├── Dockerfile                  # Python 3.11 backend container
@@ -229,9 +249,19 @@ Threat-Hunting-Platform/
 │   │   ├── auth.js                 # Session token management & RBAC helpers
 │   │   ├── pages/                  # SOC pages (Dashboard, Alerts, Cases, Hunting)
 │   │   └── pages/web/              # WebAppSec pages (Overview, Scans, Map, Findings)
+├── docs/                           # Comprehensive technical documentation
+│   ├── API.md                      # API endpoints reference
+│   ├── ARCHITECTURE.md             # System architecture and workflows
+│   ├── BACKEND.md                  # Backend engineering documentation
+│   ├── FRONTEND.md                 # Frontend UI documentation
+│   ├── INGESTION.md                # Log ingestion engine specs
+│   ├── RBAC.md                     # Role-based access control specifications
+│   └── WEB_SCANNER.md              # Web application security scanner guide
 ├── nginx/
 │   └── nginx.conf                  # Reverse proxy routing / to frontend and /api to backend
 ├── docker-compose.yaml             # Multi-service stack (Nginx, Backend, Frontend, ZAP)
+├── health-check.sh                 # Docker stack automated health-checker
+├── LICENSE                         # MIT License
 └── README.md
 ```
 
@@ -267,6 +297,15 @@ Git checkpoint branches and tags are permanently preserved:
 - **`INITIAL_PHASE`** (`4e29764`): Initial baseline state.
 - **`PHASE_2`** (`ccc9ebf`): Working OWASP ZAP daemon integration, real-time website tree streaming, and WebAppSec PDF report generator.
 - **`main`**: Current release featuring platform-wide page enhancements, CodeQL security analysis, and Dependabot automation.
+
+---
+
+## 💬 Community & Contributing
+
+- **Discussions**: Have questions, ideas, or custom Sigma rules? Join the conversation on [GitHub Discussions](https://github.com/Decoder420/Threat-Hunting-Platform/discussions).
+- **Issues**: Report bugs or request enhancements via [GitHub Issues](https://github.com/Decoder420/Threat-Hunting-Platform/issues).
+- **Security Policy**: For responsible disclosure, please refer to our [Security Policy](.github/SECURITY.md).
+- **Support**: If you find this project helpful, consider [sponsoring the project](https://github.com/sponsors/Decoder420) or giving it a ⭐ on GitHub!
 
 ---
 
