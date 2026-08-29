@@ -28,6 +28,7 @@ import {
   getStoredUser,
   setSession,
 } from "./auth";
+import { initializePreferences } from "./theme";
 import Button from "./components/ui/Button";
 import "./styles/theme.css";
 
@@ -138,6 +139,10 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState(() => getStoredUser());
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredToken());
   const [authReady, setAuthReady] = useState(!getStoredToken());
+
+  useEffect(() => {
+    initializePreferences();
+  }, []);
 
   useEffect(() => {
     const token = getStoredToken();

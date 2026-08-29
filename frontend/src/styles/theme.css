@@ -1409,3 +1409,111 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   THEMES (Cyber Emerald, Midnight Cyber, Matrix Terminal, High Contrast, Light)
+   ========================================================================== */
+
+[data-theme="midnight-blue"] {
+  --bg-0: #070d18;
+  --bg-1: #0c1626;
+  --bg-2: #122138;
+  --bg-3: #1a2f4c;
+  --line: rgba(86, 198, 255, 0.18);
+  --line-strong: rgba(86, 198, 255, 0.35);
+  --text: #e6f1fc;
+  --text-muted: #8bb2d6;
+  --text-dim: #5c7b99;
+  --accent: #56c6ff;
+  --accent-2: #80d8ff;
+  --accent-soft: rgba(86, 198, 255, 0.14);
+  --danger: #ff5252;
+  --warn: #ffa726;
+  --info: #40c4ff;
+  --ok: #00e676;
+}
+
+[data-theme="matrix-green"] {
+  --bg-0: #020904;
+  --bg-1: #051308;
+  --bg-2: #091f0e;
+  --bg-3: #0f2e16;
+  --line: rgba(0, 255, 102, 0.22);
+  --line-strong: rgba(0, 255, 102, 0.45);
+  --text: #d4ffd9;
+  --text-muted: #6fba78;
+  --text-dim: #3e7545;
+  --accent: #00ff66;
+  --accent-2: #b2ff59;
+  --accent-soft: rgba(0, 255, 102, 0.15);
+  --danger: #ff3d00;
+  --warn: #ffd600;
+  --info: #00e676;
+  --ok: #00ff66;
+}
+
+[data-theme="high-contrast"] {
+  --bg-0: #000000;
+  --bg-1: #0a0a0a;
+  --bg-2: #141414;
+  --bg-3: #222222;
+  --line: rgba(255, 255, 255, 0.3);
+  --line-strong: rgba(255, 255, 255, 0.6);
+  --text: #ffffff;
+  --text-muted: #c0c0c0;
+  --text-dim: #888888;
+  --accent: #00ff66;
+  --accent-2: #ffff00;
+  --accent-soft: rgba(0, 255, 102, 0.18);
+  --danger: #ff1744;
+  --warn: #ffea00;
+  --info: #00e5ff;
+  --ok: #00ff66;
+}
+
+[data-theme="light-terminal"] {
+  --bg-0: #f4f6f8;
+  --bg-1: #ffffff;
+  --bg-2: #e9ecef;
+  --bg-3: #dee2e6;
+  --line: rgba(0, 0, 0, 0.12);
+  --line-strong: rgba(0, 0, 0, 0.25);
+  --text: #111827;
+  --text-muted: #4b5563;
+  --text-dim: #6b7280;
+  --accent: #0284c7;
+  --accent-2: #f59e0b;
+  --accent-soft: rgba(2, 132, 199, 0.12);
+  --danger: #dc2626;
+  --warn: #d97706;
+  --info: #0284c7;
+  --ok: #16a34a;
+}
+
+[data-theme="light-terminal"] body {
+  background: #f4f6f8 !important;
+  color: #111827 !important;
+}
+
+[data-theme="light-terminal"] .surface,
+[data-theme="light-terminal"] .card {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light-terminal"] .soc-sidebar {
+  background: #ffffff !important;
+  border-right-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Compact display mode */
+.soc--compact .table th,
+.soc--compact .table td,
+.soc--compact .data-table th,
+.soc--compact .data-table td {
+  padding: 6px 10px !important;
+  font-size: 0.8rem !important;
+}
+

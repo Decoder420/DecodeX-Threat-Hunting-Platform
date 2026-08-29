@@ -48,5 +48,7 @@ test("renders settings page with organization branding and integrations", async 
 
   expect(await screen.findByText(/Platform Settings & Integrations/i)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Organization Branding/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Theme & Appearance/i })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Integrations Hub/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Prowler Posture/i })).toBeInTheDocument();
 });

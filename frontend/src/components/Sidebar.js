@@ -16,7 +16,7 @@ const LINKS = [
   { to: "/admin/console", label: "Admin Console", permission: "users.read" },
 ];
 
-export default function Sidebar({ onLogout }) {
+export default function Sidebar({ onLogout, onOpenProwler }) {
   const user = getStoredUser();
   const visible = LINKS.filter((link) => {
     if (link.to.startsWith("/admin") && !canAccessAdminPanel(user) && link.permission !== "audit.read") {
@@ -40,12 +40,10 @@ export default function Sidebar({ onLogout }) {
         </div>
         <div>
           <div className="soc-sidebar__title">DecodeX</div>
-          <div className="soc-sidebar__sub">
-            {user ? `${user.username} · ${user.role}` : "SOC"}
-          </div>
+          <div className="soc-sidebar__subtitle">Threat Hunting SOC</div>
         </div>
       </div>
-      <nav className="soc-sidebar__nav">
+      <nav className="soc-sidebar__nav" aria-label="Main Navigation">
         {visible.map((link) => (
           <NavLink
             key={link.to}
@@ -59,6 +57,30 @@ export default function Sidebar({ onLogout }) {
         ))}
       </nav>
       <div className="soc-sidebar__footer">
+        {onOpenProwler ? (
+          <button
+            onClick={onOpenProwler}
+            style={{
+              width: "100%",
+              marginBottom: 8,
+              padding: "7px 12px",
+              borderRadius: 6,
+              background: "rgba(86, 198, 255, 0.08)",
+              border: "1px solid rgba(86, 198, 255, 0.3)",
+              color: "#56c6ff",
+              fontSize: "0.78rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <span>🛡️</span>
+            <span>Prowler Posture</span>
+          </button>
+        ) : null}
         {!hasPermission("alerts.write", user) ? (
           <div className="soc-sidebar__hint">Read-only session</div>
         ) : null}
