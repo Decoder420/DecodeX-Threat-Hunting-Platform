@@ -10,7 +10,14 @@ venv/
 
 # Node
 node_modules/
-siem-ui/build/
+build/
+frontend/build/
+dist/
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+
 
 # Env / secrets
 .env
