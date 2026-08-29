@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import api, { API_BASE_URL } from "../api";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
+import AiTriageDrawer from "../components/AiTriageDrawer";
 import { getStoredToken, hasPermission } from "../auth";
 
 export default function AlertsPage() {
@@ -13,6 +14,24 @@ export default function AlertsPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+
+  // AI Triage
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiData, setAiData] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const triggerAiTriage = async (alert) => {
+    setAiLoading(true);
+    try {
+      const res = await api.post(`/ai/alert-triage/${alert.id}`);
+      setAiData(res.data);
+      setAiOpen(true);
+    } catch {
+      window.alert("Failed to run AI triage on this alert.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const canWrite = hasPermission("alerts.write");
   const canCase = hasPermission("cases.write");
@@ -329,6 +348,14 @@ export default function AlertsPage() {
                       <Button size="sm" onClick={() => setSelectedAlert(a)}>
                         Inspect
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => triggerAiTriage(a)}
+                        style={{ borderColor: "rgba(86, 198, 255, 0.4)", color: "#56c6ff" }}
+                      >
+                        🤖 AI
+                      </Button>
                       {canCase ? (
                         <Button size="sm" onClick={() => createCase(a.id)}>
                           Case
@@ -498,9 +525,17 @@ export default function AlertsPage() {
             ) : null}
 
             {/* ACTION SHORTCUTS */}
-            <div style={{ display: "flex", gap: 10, marginTop: 24, borderTop: "1px solid var(--line, rgba(255,255,255,0.1))", paddingTop: 16 }}>
+            <div style={{ display: "flex", gap: 10, marginTop: 24, borderTop: "1px solid var(--line, rgba(255,255,255,0.1))", paddingTop: 16, flexWrap: "wrap" }}>
+              <Button
+                variant="primary"
+                disabled={aiLoading}
+                onClick={() => triggerAiTriage(selectedAlert)}
+                style={{ background: "linear-gradient(135deg, #0288d1 0%, #00acc1 100%)" }}
+              >
+                🤖 Run AI Threat Triage &amp; WAF Rules
+              </Button>
               {canCase ? (
-                <Button variant="primary" onClick={() => createCase(selectedAlert.id)}>
+                <Button onClick={() => createCase(selectedAlert.id)}>
                   🛡️ Escalate to Case
                 </Button>
               ) : null}
@@ -511,6 +546,14 @@ export default function AlertsPage() {
           </div>
         </div>
       ) : null}
+
+      {/* AI TRIAGE DRAWER */}
+      <AiTriageDrawer
+        isOpen={aiOpen}
+        onClose={() => setAiOpen(false)}
+        data={aiData}
+        type="alert"
+      />
     </div>
   );
 }

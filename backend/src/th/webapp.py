@@ -121,7 +121,17 @@ def role_required(min_role):
 def ingest_key_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        key = request.headers.get("X-Ingest-Key") or request.args.get("key", "")
+        # Support X-Ingest-Key, Bearer auth, query params ?token= or ?key=, or Vercel verify header
+        auth_header = request.headers.get("Authorization", "")
+        bearer_token = auth_header.split()[1] if auth_header.startswith("Bearer ") and len(auth_header.split()) > 1 else ""
+        key = (
+            request.headers.get("X-Ingest-Key")
+            or bearer_token
+            or request.headers.get("x-vercel-verify")
+            or request.args.get("token")
+            or request.args.get("key")
+            or ""
+        )
         db = get_db()
         entry = get_active_ingest_key(db, key)
         if not entry:
@@ -812,12 +822,36 @@ def _run_ingest_pipeline(payload, source_name: str, source_type: str):
         "alerts_added": alerts_added,
     }
 
-@app.route("/api/ingest/vercel", methods=["POST"])
+@app.route("/api/ingest/vercel", methods=["GET", "POST"])
 @ingest_key_required
 def ingest_vercel():
+    # Respond to verification handshake if Vercel sends GET or ping
+    if request.method == "GET":
+        verify_val = request.headers.get("x-vercel-verify") or "ok"
+        response = jsonify({"status": "ready", "collector": "DecodeX Vercel Ingestion Gateway"})
+        response.headers["x-vercel-verify"] = verify_val
+        return response, 200
+
     payload = request.get_json(silent=True)
     if payload is None:
-        return jsonify({"error": "Invalid or missing JSON body"}), 400
+        raw_text = request.get_data(as_text=True)
+        if raw_text:
+            parsed = []
+            for line in raw_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    parsed.append(json.loads(line))
+                except Exception:
+                    parsed.append({"message": line, "timestamp": datetime.utcnow().isoformat() + "Z"})
+            payload = parsed
+        else:
+            payload = []
+
+    if not payload:
+        return jsonify({"status": "success", "events_added": 0, "message": "Empty batch received"}), 200
+
     result = _run_ingest_pipeline(payload, source_name=f"vercel:{g.ingest_key.name}", source_type="cloud")
     return jsonify(result)
 
