@@ -104,6 +104,17 @@ export const uploadLogFile = (file) => {
   });
 };
 
+export const deleteAlert = (alertId) => api.delete(`/alerts/${alertId}`);
+
+export const purgeAlerts = (payload = {}) => api.post("/alerts/purge", payload);
+
+export const purgeEvents = (payload = {}) => api.post("/events/purge", payload);
+
+export const getDatabaseMaintenance = () => api.get("/database/maintenance");
+
+export const vacuumDatabase = () => api.post("/database/vacuum");
+
+
 
 export const executeSoarAction = (action, target) =>
   api.post("/soar/action", {
