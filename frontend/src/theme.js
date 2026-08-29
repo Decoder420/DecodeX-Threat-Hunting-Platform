@@ -13,6 +13,60 @@ export const THEMES = [
     bgColor: "#05080d",
   },
   {
+    id: "vscode-dark-plus",
+    name: "VS Code Dark+",
+    badge: "VS Code",
+    desc: "Classic Visual Studio Code dark environment with iconic classic blue (#007acc) highlights.",
+    primaryColor: "#007acc",
+    accentColor: "#4fc1ff",
+    bgColor: "#1e1e1e",
+  },
+  {
+    id: "one-dark-pro",
+    name: "One Dark Pro",
+    badge: "VS Code",
+    desc: "Atom & VS Code legendary One Dark theme with pastel blues, purples, and mint greens.",
+    primaryColor: "#61afef",
+    accentColor: "#98c379",
+    bgColor: "#282c34",
+  },
+  {
+    id: "dracula",
+    name: "Dracula Official",
+    badge: "VS Code",
+    desc: "Famous dark vampire theme for VS Code with neon purple, soft pink, and cyan accents.",
+    primaryColor: "#bd93f9",
+    accentColor: "#ff79c6",
+    bgColor: "#282a36",
+  },
+  {
+    id: "github-dark-dimmed",
+    name: "GitHub Dark Dimmed",
+    badge: "VS Code",
+    desc: "Professional GitHub Dimmed workspace offering balanced slate contrast to minimize eye strain.",
+    primaryColor: "#539bf5",
+    accentColor: "#57ab5a",
+    bgColor: "#22272e",
+  },
+  {
+    id: "tokyo-night",
+    name: "Tokyo Night",
+    badge: "VS Code",
+    desc: "Popular Tokyo visual theme celebrating downtown nights with neon indigo and electric lavender.",
+    primaryColor: "#7aa2f7",
+    accentColor: "#bb9af7",
+    bgColor: "#1a1b26",
+  },
+  {
+    id: "monokai-pro",
+    name: "Monokai Pro",
+    badge: "VS Code",
+    desc: "Refined spectrum color palette with warm charcoal background and vibrant candy highlights.",
+    primaryColor: "#ffd866",
+    accentColor: "#ff6188",
+    bgColor: "#2d2a2e",
+  },
+  {
     id: "midnight-blue",
     name: "Midnight Cyber",
     badge: "SOC Pro",
@@ -49,6 +103,7 @@ export const THEMES = [
     bgColor: "#f4f6f8",
   },
 ];
+
 
 const PREFS_STORAGE_KEY = "decodex-preferences";
 const THEME_STORAGE_KEY = "decodex-theme";

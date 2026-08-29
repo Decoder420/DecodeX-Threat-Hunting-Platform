@@ -1411,10 +1411,125 @@ textarea {
 }
 
 /* ==========================================================================
-   THEMES (Cyber Emerald, Midnight Cyber, Matrix Terminal, High Contrast, Light)
+   THEMES (Cyber Emerald, VS Code Dark+, One Dark Pro, Dracula, GitHub Dimmed, Tokyo Night, Monokai Pro, Midnight Cyber, Matrix Terminal, High Contrast, Light)
    ========================================================================== */
 
+[data-theme="vscode-dark-plus"] {
+  --bg-0: #181818;
+  --bg-1: #1e1e1e;
+  --bg-2: #252526;
+  --bg-3: #2d2d30;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(0, 122, 204, 0.45);
+  --text: #cccccc;
+  --text-muted: #9cdcfe;
+  --text-dim: #6a9955;
+  --accent: #007acc;
+  --accent-2: #4fc1ff;
+  --accent-soft: rgba(0, 122, 204, 0.16);
+  --danger: #f14c4c;
+  --warn: #cca700;
+  --info: #3794ff;
+  --ok: #89d185;
+}
+
+[data-theme="one-dark-pro"] {
+  --bg-0: #21252b;
+  --bg-1: #282c34;
+  --bg-2: #2c313c;
+  --bg-3: #3e4451;
+  --line: rgba(97, 175, 239, 0.18);
+  --line-strong: rgba(97, 175, 239, 0.35);
+  --text: #abb2bf;
+  --text-muted: #5c6370;
+  --text-dim: #4b5263;
+  --accent: #61afef;
+  --accent-2: #c678dd;
+  --accent-soft: rgba(97, 175, 239, 0.15);
+  --danger: #e06c75;
+  --warn: #e5c07b;
+  --info: #56b6c2;
+  --ok: #98c379;
+}
+
+[data-theme="dracula"] {
+  --bg-0: #1e1f29;
+  --bg-1: #282a36;
+  --bg-2: #343746;
+  --bg-3: #44475a;
+  --line: rgba(189, 147, 249, 0.2);
+  --line-strong: rgba(189, 147, 249, 0.4);
+  --text: #f8f8f2;
+  --text-muted: #6272a4;
+  --text-dim: #44475a;
+  --accent: #bd93f9;
+  --accent-2: #ff79c6;
+  --accent-soft: rgba(189, 147, 249, 0.16);
+  --danger: #ff5555;
+  --warn: #ffb86c;
+  --info: #8be9fd;
+  --ok: #50fa7b;
+}
+
+[data-theme="github-dark-dimmed"] {
+  --bg-0: #1c2128;
+  --bg-1: #22272e;
+  --bg-2: #2d333b;
+  --bg-3: #373e47;
+  --line: rgba(99, 110, 123, 0.25);
+  --line-strong: rgba(83, 155, 245, 0.35);
+  --text: #adbac7;
+  --text-muted: #768390;
+  --text-dim: #545d68;
+  --accent: #539bf5;
+  --accent-2: #6cb6ff;
+  --accent-soft: rgba(83, 155, 245, 0.15);
+  --danger: #f47067;
+  --warn: #c69026;
+  --info: #539bf5;
+  --ok: #57ab5a;
+}
+
+[data-theme="tokyo-night"] {
+  --bg-0: #16161e;
+  --bg-1: #1a1b26;
+  --bg-2: #24283b;
+  --bg-3: #2f354a;
+  --line: rgba(122, 162, 247, 0.2);
+  --line-strong: rgba(122, 162, 247, 0.4);
+  --text: #c0caf5;
+  --text-muted: #565f89;
+  --text-dim: #414868;
+  --accent: #7aa2f7;
+  --accent-2: #bb9af7;
+  --accent-soft: rgba(122, 162, 247, 0.15);
+  --danger: #f7768e;
+  --warn: #e0af68;
+  --info: #7dcfff;
+  --ok: #9ece6a;
+}
+
+[data-theme="monokai-pro"] {
+  --bg-0: #221f22;
+  --bg-1: #2d2a2e;
+  --bg-2: #3a373b;
+  --bg-3: #49464e;
+  --line: rgba(255, 216, 102, 0.2);
+  --line-strong: rgba(255, 216, 102, 0.4);
+  --text: #fcfcfa;
+  --text-muted: #939293;
+  --text-dim: #727072;
+  --accent: #ffd866;
+  --accent-2: #78dce8;
+  --accent-soft: rgba(255, 216, 102, 0.14);
+  --danger: #ff6188;
+  --warn: #fc9867;
+  --info: #78dce8;
+  --ok: #a9dc76;
+}
+
 [data-theme="midnight-blue"] {
+
   --bg-0: #070d18;
   --bg-1: #0c1626;
   --bg-2: #122138;
