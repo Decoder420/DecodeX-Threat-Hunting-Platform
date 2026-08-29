@@ -39,7 +39,7 @@ export default function WebScansPage() {
   const authorizedTargets = useMemo(
     () =>
       (targets || []).filter(
-        (t) => t.authorization_status === "AUTHORIZED" && t.enabled
+        (t) => (t.authorization_status || "").toUpperCase() === "AUTHORIZED" && t.enabled
       ),
     [targets]
   );

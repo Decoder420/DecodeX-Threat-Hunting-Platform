@@ -14,6 +14,7 @@ export default function WebTargetsPage() {
   const [search, setSearch] = useState("");
   const [envFilter, setEnvFilter] = useState("ALL");
   const [authFilter, setAuthFilter] = useState("ALL");
+  const [successMsg, setSuccessMsg] = useState("");
   const [form, setForm] = useState({
     name: "",
     url: "https://",
@@ -60,8 +61,11 @@ export default function WebTargetsPage() {
     );
     if (!ok) return;
     setBusyId(id);
+    setError("");
     try {
       await webApi.authorizeTarget(id);
+      setSuccessMsg(`✓ Target "${name}" is now AUTHORIZED and ready for scanning!`);
+      setTimeout(() => setSuccessMsg(""), 4000);
       await load();
     } catch (err) {
       setError(err.response?.data?.error?.message || "Authorization failed.");
@@ -70,11 +74,14 @@ export default function WebTargetsPage() {
     }
   };
 
-  const disable = async (id) => {
-    if (!window.confirm("Disable and revoke this target?")) return;
+  const disable = async (id, name) => {
+    if (!window.confirm(`Disable and revoke target "${name || id}"?`)) return;
     setBusyId(id);
+    setError("");
     try {
       await webApi.disableTarget(id);
+      setSuccessMsg(`Target authorization revoked.`);
+      setTimeout(() => setSuccessMsg(""), 4000);
       await load();
     } catch (err) {
       setError(err.response?.data?.error?.message || "Disable failed.");
@@ -106,6 +113,20 @@ export default function WebTargetsPage() {
   return (
     <div className="websec__stack">
       {error ? <div className="surface websec__panel error-text">{error}</div> : null}
+      {successMsg ? (
+        <div
+          className="surface websec__panel"
+          style={{
+            borderColor: "rgba(62, 224, 162, 0.4)",
+            background: "rgba(62, 224, 162, 0.08)",
+            color: "#3ee0a2",
+            fontWeight: 600,
+            fontSize: "0.9rem",
+          }}
+        >
+          {successMsg}
+        </div>
+      ) : null}
 
       {/* REGISTER TARGET FORM */}
       {canRun ? (
@@ -274,9 +295,9 @@ export default function WebTargetsPage() {
                     <td>
                       <Badge
                         tone={
-                          t.authorization_status === "authorized"
+                          (t.authorization_status || "").toUpperCase() === "AUTHORIZED"
                             ? "ok"
-                            : t.authorization_status === "revoked"
+                            : (t.authorization_status || "").toUpperCase() === "REVOKED"
                             ? "danger"
                             : "warn"
                         }
@@ -293,7 +314,7 @@ export default function WebTargetsPage() {
                         🔍 Cockpit
                       </Button>
 
-                      {t.authorization_status === "authorized" && canRun ? (
+                      {(t.authorization_status || "").toUpperCase() === "AUTHORIZED" && canRun ? (
                         <Button
                           size="sm"
                           variant="primary"
@@ -303,22 +324,22 @@ export default function WebTargetsPage() {
                         </Button>
                       ) : null}
 
-                      {t.authorization_status !== "authorized" && canRun ? (
+                      {(t.authorization_status || "").toUpperCase() !== "AUTHORIZED" && canRun ? (
                         <Button
                           size="sm"
                           disabled={busyId === t.id}
                           onClick={() => authorize(t.id, t.name)}
                         >
-                          Authorize
+                          {busyId === t.id ? "Authorizing…" : "Authorize"}
                         </Button>
                       ) : null}
 
-                      {t.authorization_status === "authorized" && canRun ? (
+                      {(t.authorization_status || "").toUpperCase() === "AUTHORIZED" && canRun ? (
                         <Button
                           size="sm"
                           variant="danger"
                           disabled={busyId === t.id}
-                          onClick={() => disable(t.id)}
+                          onClick={() => disable(t.id, t.name)}
                         >
                           Revoke
                         </Button>

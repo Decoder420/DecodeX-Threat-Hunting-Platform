@@ -142,12 +142,12 @@ export default function WebTargetDetailPage() {
           </Link>
           <span style={{ color: "var(--color-text-muted)" }}>/</span>
           <span style={{ color: "#fff", fontWeight: 600 }}>{target.name}</span>
-          <Badge tone={target.authorization_status === "AUTHORIZED" ? "ok" : "warn"}>
+          <Badge tone={(target.authorization_status || "").toUpperCase() === "AUTHORIZED" ? "ok" : "warn"}>
             {target.authorization_status}
           </Badge>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          {target.authorization_status !== "AUTHORIZED" && canRun && (
+          {(target.authorization_status || "").toUpperCase() !== "AUTHORIZED" && canRun && (
             <Button size="sm" variant="secondary" onClick={handleAuthorize}>
               Authorize Scanning
             </Button>
@@ -156,7 +156,7 @@ export default function WebTargetDetailPage() {
             <Button
               size="sm"
               variant="primary"
-              disabled={scanBusy || target.authorization_status !== "AUTHORIZED"}
+              disabled={scanBusy || (target.authorization_status || "").toUpperCase() !== "AUTHORIZED"}
               onClick={() => handleRunScan("QUICK")}
             >
               {scanBusy ? "Starting Scan…" : "⚡ Quick Scan"}
