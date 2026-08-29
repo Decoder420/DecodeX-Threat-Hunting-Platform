@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import api from "../api";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
+import ProwlerSidePanel from "../components/ProwlerSidePanel";
+import { THEMES, getStoredPreferences, saveStoredPreferences, applyTheme } from "../theme";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("branding");
@@ -24,6 +26,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [testStatus, setTestStatus] = useState("");
+
+  // Platform Preferences & Theme State
+  const [preferences, setPreferences] = useState(getStoredPreferences());
+  const [prowlerOpen, setProwlerOpen] = useState(false);
 
   // Ingest Keys State
   const [keys, setKeys] = useState([]);
@@ -71,6 +77,18 @@ export default function SettingsPage() {
       setSaving(false);
       setTimeout(() => setSaveStatus(""), 4000);
     }
+  };
+
+  const handleUpdatePreferences = (changes) => {
+    const updated = saveStoredPreferences(changes);
+    setPreferences(updated);
+    setSaveStatus("Preferences updated!");
+    setTimeout(() => setSaveStatus(""), 3000);
+  };
+
+  const handleSelectTheme = (themeId) => {
+    applyTheme(themeId);
+    handleUpdatePreferences({ theme: themeId });
   };
 
   const handleTestWebhook = async (channel, url) => {
@@ -130,30 +148,43 @@ export default function SettingsPage() {
   return (
     <div className="soc-page" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: "1.6rem", color: "#fff", fontFamily: "var(--font-display)" }}>
-            Platform Settings & Integrations
+            Platform Settings &amp; Integrations
           </h1>
           <div style={{ color: "var(--color-text-muted)", fontSize: "0.88rem", marginTop: 4 }}>
-            Customize your organization branding, connect modern developer tools, and configure AI detection.
+            Customize themes, organization branding, cloud telemetry connectors, and Prowler compliance posture.
           </div>
         </div>
-        {saveStatus && (
-          <Badge tone={saveStatus.includes("✓") || saveStatus.includes("success") ? "ok" : "warn"}>
-            {saveStatus}
-          </Badge>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setProwlerOpen(true)}
+            style={{ borderColor: "#56c6ff", color: "#56c6ff" }}
+          >
+            🛡️ Open Prowler Side Panel
+          </Button>
+          {saveStatus && (
+            <Badge tone={saveStatus.includes("✓") || saveStatus.includes("success") || saveStatus.includes("updated") ? "ok" : "warn"}>
+              {saveStatus}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 12, borderBottom: "1px solid rgba(86, 198, 255, 0.2)", paddingBottom: 8 }}>
+      <div style={{ display: "flex", gap: 10, borderBottom: "1px solid rgba(86, 198, 255, 0.2)", paddingBottom: 8, overflowX: "auto" }}>
         {[
           { id: "branding", label: "🏢 Organization Branding" },
+          { id: "themes", label: "🎨 Theme & Appearance" },
+          { id: "preferences", label: "⚙️ User & General Settings" },
           { id: "integrations", label: "⚡ Integrations Hub (Vercel, Cloudflare, etc.)" },
           { id: "notifications", label: "🔔 Alert Notifications (Slack/Teams)" },
           { id: "ai", label: "🤖 AI Threat Copilot" },
           { id: "keys", label: "🔑 Ingestion API Keys" },
+          { id: "prowler", label: "🛡️ Prowler Posture" },
         ].map((t) => (
           <button
             key={t.id}
@@ -167,6 +198,7 @@ export default function SettingsPage() {
               fontWeight: 700,
               cursor: "pointer",
               fontSize: "0.88rem",
+              whiteSpace: "nowrap",
             }}
           >
             {t.label}
@@ -177,7 +209,7 @@ export default function SettingsPage() {
       {/* TAB 1: ORGANIZATION BRANDING */}
       {activeTab === "branding" && (
         <form onSubmit={handleSave} className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Corporate Identity & Localization</h3>
+          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Corporate Identity &amp; Localization</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
             <div>
               <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
@@ -235,8 +267,8 @@ export default function SettingsPage() {
           </div>
 
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 18 }}>
-            <h4 style={{ margin: "0 0 12px 0", color: "#fff", fontSize: "0.95rem" }}>Compliance & Data Retention</h4>
-            <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+            <h4 style={{ margin: "0 0 12px 0", color: "#fff", fontSize: "0.95rem" }}>Compliance &amp; Data Retention</h4>
+            <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.88rem", color: "#fff", cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -267,7 +299,188 @@ export default function SettingsPage() {
         </form>
       )}
 
-      {/* TAB 2: INTEGRATIONS HUB */}
+      {/* TAB 2: THEME & APPEARANCE */}
+      {activeTab === "themes" && (
+        <div className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div>
+            <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Interface Theme &amp; Visual Style</h3>
+            <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: 4 }}>
+              Select your preferred visual environment. Themes adapt contrast, HUD reticles, and typography across all SOC pages.
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+            {THEMES.map((theme) => {
+              const isSelected = (preferences.theme || "emerald") === theme.id;
+              return (
+                <div
+                  key={theme.id}
+                  onClick={() => handleSelectTheme(theme.id)}
+                  style={{
+                    padding: 20,
+                    borderRadius: 10,
+                    background: theme.bgColor,
+                    border: `2px solid ${isSelected ? theme.primaryColor : "rgba(255, 255, 255, 0.1)"}`,
+                    cursor: "pointer",
+                    boxShadow: isSelected ? `0 0 20px ${theme.primaryColor}33` : "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    gap: 14,
+                    transition: "transform 0.15s ease, border-color 0.15s ease",
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontWeight: 700, fontSize: "1.05rem", color: isSelected ? theme.primaryColor : "#fff" }}>
+                        {theme.name}
+                      </span>
+                      <Badge tone={isSelected ? "ok" : "info"}>{theme.badge}</Badge>
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "rgba(255, 255, 255, 0.7)", lineHeight: 1.5 }}>
+                      {theme.desc}
+                    </div>
+                  </div>
+
+                  {/* Color Swatch Preview */}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 999, background: theme.primaryColor, border: "2px solid #fff" }} />
+                    <div style={{ width: 20, height: 20, borderRadius: 999, background: theme.accentColor }} />
+                    <div style={{ width: 16, height: 16, borderRadius: 999, background: "rgba(255,255,255,0.2)" }} />
+                    <span style={{ fontSize: "0.75rem", color: "rgba(255, 255, 255, 0.5)", marginLeft: "auto" }}>
+                      {isSelected ? "Active Theme ✓" : "Click to Apply"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: USER & GENERAL SETTINGS */}
+      {activeTab === "preferences" && (
+        <div className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 24 }}>
+          <div>
+            <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Platform &amp; Analyst Preferences</h3>
+            <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: 4 }}>
+              Configure navigation defaults, auto-refresh telemetry frequency, audio notifications, and view density.
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                Default Landing Workspace
+              </label>
+              <select
+                className="input"
+                value={preferences.landingPage}
+                onChange={(e) => handleUpdatePreferences({ landingPage: e.target.value })}
+                style={{ width: "100%" }}
+              >
+                <option value="/dashboard">Executive SOC Dashboard (/dashboard)</option>
+                <option value="/alerts">Live Detections &amp; Alerts (/alerts)</option>
+                <option value="/hunting">Threat Hunting Workspace (/hunting)</option>
+                <option value="/webscan">Web Security &amp; DAST Scanner (/webscan)</option>
+                <option value="/intelligence">Threat Intelligence &amp; IOCs (/intelligence)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                Real-Time Telemetry Auto-Refresh Rate
+              </label>
+              <select
+                className="input"
+                value={preferences.autoRefreshRate}
+                onChange={(e) => handleUpdatePreferences({ autoRefreshRate: e.target.value })}
+                style={{ width: "100%" }}
+              >
+                <option value="off">Off (Manual Refresh)</option>
+                <option value="10s">10 Seconds (High Velocity)</option>
+                <option value="30s">30 Seconds (Recommended)</option>
+                <option value="60s">60 Seconds</option>
+                <option value="5m">5 Minutes</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                Session Auto-Timeout / Screen Lock
+              </label>
+              <select
+                className="input"
+                value={preferences.sessionTimeout}
+                onChange={(e) => handleUpdatePreferences({ sessionTimeout: e.target.value })}
+                style={{ width: "100%" }}
+              >
+                <option value="15m">15 Minutes (Strict Security)</option>
+                <option value="30m">30 Minutes</option>
+                <option value="60m">1 Hour</option>
+                <option value="8h">8 Hours (Full Shift)</option>
+                <option value="never">Never</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                Default Incident Report Export Format
+              </label>
+              <select
+                className="input"
+                value={preferences.defaultExportFormat}
+                onChange={(e) => handleUpdatePreferences({ defaultExportFormat: e.target.value })}
+                style={{ width: "100%" }}
+              >
+                <option value="pdf">Executive PDF (DecodeX Brand Theme)</option>
+                <option value="json">Structured JSON Data</option>
+                <option value="csv">Tabular CSV Format</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.88rem", color: "#fff", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={preferences.compactMode}
+                onChange={(e) => handleUpdatePreferences({ compactMode: e.target.checked })}
+              />
+              <b>Compact Data Table Mode:</b> Use condensed row padding for maximum information density in alerts and logs.
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.88rem", color: "#fff", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={preferences.soundAlerts}
+                onChange={(e) => handleUpdatePreferences({ soundAlerts: e.target.checked })}
+              />
+              <b>Audio Alert Chime:</b> Play audible pulse ping when a CRITICAL threat detection arrives.
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.88rem", color: "#fff", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={preferences.confirmDestructiveActions}
+                onChange={(e) => handleUpdatePreferences({ confirmDestructiveActions: e.target.checked })}
+              />
+              <b>Destructive Action Confirmation:</b> Require confirmation dialogs when deleting targets, revoking API keys, or clearing logs.
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.88rem", color: "#fff", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={preferences.anonymizeIps}
+                onChange={(e) => handleUpdatePreferences({ anonymizeIps: e.target.checked })}
+              />
+              <b>Anonymize Telemetry IPs in Public Views:</b> Mask client IP addresses (e.g. <code>198.51.100.***</code>) for privacy and compliance demos.
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: INTEGRATIONS HUB */}
       {activeTab === "integrations" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ fontSize: "0.9rem", color: "var(--color-text-muted)" }}>
@@ -348,7 +561,7 @@ export default function SettingsPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontSize: "1.8rem" }}>☁️</div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.2rem", color: "#fff" }}>Cloudflare Logpush & WAF Alerts</h3>
+                  <h3 style={{ margin: 0, fontSize: "1.2rem", color: "#fff" }}>Cloudflare Logpush &amp; WAF Alerts</h3>
                   <div style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
                     Receive perimeter attack logs, rate-limit drops, and credential stuffing alerts.
                   </div>
@@ -390,7 +603,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* TAB 3: ALERT NOTIFICATIONS */}
+      {/* TAB 5: ALERT NOTIFICATIONS */}
       {activeTab === "notifications" && (
         <form onSubmit={handleSave} className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
           <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Live SOC Incident Webhook Dispatchers</h3>
@@ -462,7 +675,7 @@ export default function SettingsPage() {
         </form>
       )}
 
-      {/* TAB 4: AI COPILOT SETTINGS */}
+      {/* TAB 6: AI COPILOT SETTINGS */}
       {activeTab === "ai" && (
         <form onSubmit={handleSave} className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -531,7 +744,7 @@ export default function SettingsPage() {
         </form>
       )}
 
-      {/* TAB 5: INGESTION KEYS */}
+      {/* TAB 7: INGESTION KEYS */}
       {activeTab === "keys" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {/* Create Key Form */}
@@ -647,6 +860,39 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* TAB 8: PROWLER POSTURE SUMMARY */}
+      {activeTab === "prowler" && (
+        <div className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h3 style={{ margin: 0, color: "#fff", fontSize: "1.2rem" }}>Prowler Cloud Security Posture Management (CSPM)</h3>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: 4 }}>
+                Automated multi-cloud compliance posture inspection across CIS Benchmarks, SOC 2, ISO 27001, and PCI-DSS.
+              </div>
+            </div>
+            <Button variant="primary" onClick={() => setProwlerOpen(true)}>
+              🛡️ Open Prowler Cockpit Panel
+            </Button>
+          </div>
+
+          <div
+            style={{
+              padding: 20,
+              borderRadius: 8,
+              background: "rgba(86, 198, 255, 0.06)",
+              border: "1px solid rgba(86, 198, 255, 0.2)",
+              fontSize: "0.88rem",
+              lineHeight: 1.6,
+            }}
+          >
+            Prowler runs automated checks on cloud perimeters, Vercel deployments, AWS credentials, S3 public access, and edge WAF rules. Click <b>Open Prowler Cockpit Panel</b> to view individual check results, risk assessments, and 1-click remediation scripts!
+          </div>
+        </div>
+      )}
+
+      {/* Prowler Side Panel */}
+      <ProwlerSidePanel isOpen={prowlerOpen} onClose={() => setProwlerOpen(false)} />
     </div>
   );
 }
