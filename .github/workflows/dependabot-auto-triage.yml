@@ -20,7 +20,7 @@ jobs:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Add Triage Labels
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const updateType = '${{ steps.metadata.outputs.update-type }}';
