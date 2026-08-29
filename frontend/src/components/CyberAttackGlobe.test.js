@@ -1,0 +1,34 @@
+import React from "react";
+import { render, screen } from "@testing-library/react";
+import CyberAttackGlobe from "./CyberAttackGlobe";
+
+beforeAll(() => {
+  HTMLCanvasElement.prototype.getContext = () => ({
+    clearRect: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    quadraticCurveTo: () => {},
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    setLineDash: () => {},
+    fillRect: () => {},
+    save: () => {},
+    restore: () => {},
+    clip: () => {},
+  });
+  window.requestAnimationFrame = (cb) => setTimeout(cb, 16);
+  window.cancelAnimationFrame = (id) => clearTimeout(id);
+});
+
+test("renders CyberAttackGlobe with tactical controls and attack queue", () => {
+  render(<CyberAttackGlobe />);
+
+  expect(screen.getByText(/Global Threat Actor Radar/i)).toBeInTheDocument();
+  expect(screen.getByText(/Inbound Intercept Queue/i)).toBeInTheDocument();
+  expect(screen.getByText(/6 Active Vectors/i)).toBeInTheDocument();
+  expect(screen.getByText(/185.220.101.42/i)).toBeInTheDocument();
+});

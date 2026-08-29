@@ -217,48 +217,47 @@ export default function App() {
             )
           }
         />
+        {/* Protected App Shell Layout */}
         <Route
-          path="/*"
           element={
             !isAuthenticated ? (
               <Navigate to="/login" replace />
             ) : (
-              <AppLayout onLogout={handleLogout}>
-                <Routes>
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <ProtectedRoute permission="dashboard.read">
-                        <Dashboard embedded onLogout={handleLogout} currentUser={sessionUser} />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route path="/alerts" element={<ProtectedRoute permission="alerts.read"><AlertsPage /></ProtectedRoute>} />
-                  <Route path="/hunting" element={<ProtectedRoute permission="events.read"><HuntingPage /></ProtectedRoute>} />
-                  <Route path="/cases" element={<ProtectedRoute permission="cases.read"><CasesPage /></ProtectedRoute>} />
-                  <Route path="/intelligence" element={<ProtectedRoute permission="ioc.read"><IntelligencePage /></ProtectedRoute>} />
-                  <Route path="/webscan" element={<ProtectedRoute permission="webscan.read"><WebSecurityLayout /></ProtectedRoute>}>
-                    <Route index element={<WebOverviewPage />} />
-                    <Route path="targets" element={<WebTargetsPage />} />
-                    <Route path="targets/:targetId" element={<WebTargetDetailPage />} />
-                    <Route path="scans" element={<WebScansPage />} />
-                    <Route path="findings" element={<WebFindingsPage />} />
-                    <Route path="attack-surface" element={<WebAttackSurfacePage />} />
-                    <Route path="map" element={<WebsiteMapPage />} />
-                    <Route path="map/target/:targetId" element={<WebsiteMapPage />} />
-                    <Route path="health" element={<WebScannerHealthPage />} />
-                  </Route>
-                  <Route path="/reports" element={<ProtectedRoute permission="reports.read"><ReportsPage /></ProtectedRoute>} />
-                  <Route path="/settings" element={<ProtectedRoute permission="dashboard.read"><SettingsPage /></ProtectedRoute>} />
-                  <Route path="/admin/users" element={<ProtectedRoute permission="users.read"><AdminUsersPage /></ProtectedRoute>} />
-                  <Route path="/admin/audit" element={<ProtectedRoute permission="audit.read"><AdminAuditPage /></ProtectedRoute>} />
-                  <Route path="/admin/console" element={<ProtectedRoute permission="users.read"><Dashboard embedded initialView="admin" onLogout={handleLogout} currentUser={sessionUser} /></ProtectedRoute>} />
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-              </AppLayout>
+              <AppLayout onLogout={handleLogout} />
             )
           }
-        />
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute permission="dashboard.read">
+                <Dashboard embedded onLogout={handleLogout} currentUser={sessionUser} />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/alerts" element={<ProtectedRoute permission="alerts.read"><AlertsPage /></ProtectedRoute>} />
+          <Route path="/hunting" element={<ProtectedRoute permission="events.read"><HuntingPage /></ProtectedRoute>} />
+          <Route path="/cases" element={<ProtectedRoute permission="cases.read"><CasesPage /></ProtectedRoute>} />
+          <Route path="/intelligence" element={<ProtectedRoute permission="ioc.read"><IntelligencePage /></ProtectedRoute>} />
+          <Route path="/webscan" element={<ProtectedRoute permission="webscan.read"><WebSecurityLayout /></ProtectedRoute>}>
+            <Route index element={<WebOverviewPage />} />
+            <Route path="targets" element={<WebTargetsPage />} />
+            <Route path="targets/:targetId" element={<WebTargetDetailPage />} />
+            <Route path="scans" element={<WebScansPage />} />
+            <Route path="findings" element={<WebFindingsPage />} />
+            <Route path="attack-surface" element={<WebAttackSurfacePage />} />
+            <Route path="map" element={<WebsiteMapPage />} />
+            <Route path="map/target/:targetId" element={<WebsiteMapPage />} />
+            <Route path="health" element={<WebScannerHealthPage />} />
+          </Route>
+          <Route path="/reports" element={<ProtectedRoute permission="reports.read"><ReportsPage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute permission="dashboard.read"><SettingsPage /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute permission="users.read"><AdminUsersPage /></ProtectedRoute>} />
+          <Route path="/admin/audit" element={<ProtectedRoute permission="audit.read"><AdminAuditPage /></ProtectedRoute>} />
+          <Route path="/admin/console" element={<ProtectedRoute permission="users.read"><Dashboard embedded initialView="admin" onLogout={handleLogout} currentUser={sessionUser} /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );
