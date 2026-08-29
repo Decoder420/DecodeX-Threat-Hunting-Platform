@@ -1,0 +1,12 @@
+# GitHub Sponsors and Funding Configuration
+# Documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# GitHub Sponsors username
+github: [Decoder420]
+
+# Optional: Add other funding platforms below by uncommenting and adding your handle
+# patreon: # Replace with your Patreon username
+# open_collective: # Replace with your Open Collective username
+# ko_fi: # Replace with your Ko-fi username
+# buy_me_a_coffee: # Replace with your Buy Me a Coffee username
+# custom: ['https://www.paypal.me/YOUR_HANDLE']
