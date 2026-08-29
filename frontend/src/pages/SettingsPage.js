@@ -174,37 +174,204 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 10, borderBottom: "1px solid rgba(86, 198, 255, 0.2)", paddingBottom: 8, overflowX: "auto" }}>
-        {[
-          { id: "branding", label: "🏢 Organization Branding" },
-          { id: "themes", label: "🎨 Theme & Appearance" },
-          { id: "preferences", label: "⚙️ User & General Settings" },
-          { id: "integrations", label: "⚡ Integrations Hub (Vercel, Cloudflare, etc.)" },
-          { id: "notifications", label: "🔔 Alert Notifications (Slack/Teams)" },
-          { id: "ai", label: "🤖 AI Threat Copilot" },
-          { id: "keys", label: "🔑 Ingestion API Keys" },
-          { id: "prowler", label: "🛡️ Prowler Posture" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
+      {/* SETTINGS WORKSPACE WITH SUB SIDE PANEL */}
+      <div
+        style={{
+          display: "flex",
+          gap: 24,
+          alignItems: "flex-start",
+          minHeight: "75vh",
+        }}
+      >
+        {/* SUB SIDE PANEL */}
+        <aside
+          style={{
+            width: 270,
+            flexShrink: 0,
+            background: "rgba(10, 20, 30, 0.65)",
+            backdropFilter: "blur(14px)",
+            border: "1px solid var(--line, rgba(86, 198, 255, 0.18))",
+            borderRadius: 12,
+            padding: "16px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            position: "sticky",
+            top: 16,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                color: "var(--color-text-muted, #7c90a0)",
+                letterSpacing: "0.08em",
+                padding: "2px 10px 8px 10px",
+              }}
+            >
+              General &amp; Branding
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[
+                { id: "branding", label: "🏢 Organization Branding", desc: "Corporate identity & contacts" },
+                { id: "themes", label: "🎨 Theme & Appearance", desc: "Visual color palettes & dark mode" },
+                { id: "preferences", label: "⚙️ User & General Settings", desc: "Sound, polling & default views" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: "none",
+                    borderLeft: activeTab === t.id ? "3px solid #56c6ff" : "3px solid transparent",
+                    background: activeTab === t.id ? "rgba(86, 198, 255, 0.16)" : "transparent",
+                    color: activeTab === t.id ? "#fff" : "var(--color-text-muted, #94a3b8)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ fontWeight: activeTab === t.id ? 700 : 500, fontSize: "0.86rem" }}>
+                    {t.label}
+                  </span>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
+                    {t.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                color: "var(--color-text-muted, #7c90a0)",
+                letterSpacing: "0.08em",
+                padding: "2px 10px 8px 10px",
+                borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+                paddingTop: 12,
+              }}
+            >
+              Telemetry &amp; AI
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[
+                { id: "integrations", label: "⚡ Integrations Hub (Vercel, Cloudflare, etc.)", desc: "Cloud telemetry & edge drains" },
+                { id: "notifications", label: "🔔 Alert Notifications (Slack/Teams)", desc: "Webhooks for SOC dispatch" },
+                { id: "ai", label: "🤖 AI Threat Copilot", desc: "Automated triage & mitigation rules" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: "none",
+                    borderLeft: activeTab === t.id ? "3px solid #56c6ff" : "3px solid transparent",
+                    background: activeTab === t.id ? "rgba(86, 198, 255, 0.16)" : "transparent",
+                    color: activeTab === t.id ? "#fff" : "var(--color-text-muted, #94a3b8)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ fontWeight: activeTab === t.id ? 700 : 500, fontSize: "0.86rem" }}>
+                    {t.label}
+                  </span>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
+                    {t.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                color: "var(--color-text-muted, #7c90a0)",
+                letterSpacing: "0.08em",
+                padding: "2px 10px 8px 10px",
+                borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+                paddingTop: 12,
+              }}
+            >
+              Security &amp; Audit
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[
+                { id: "keys", label: "🔑 Ingestion API Keys", desc: "Collector authentication tokens" },
+                { id: "prowler", label: "🛡️ Prowler Posture", desc: "Multi-cloud compliance audit" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: "none",
+                    borderLeft: activeTab === t.id ? "3px solid #56c6ff" : "3px solid transparent",
+                    background: activeTab === t.id ? "rgba(86, 198, 255, 0.16)" : "transparent",
+                    color: activeTab === t.id ? "#fff" : "var(--color-text-muted, #94a3b8)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ fontWeight: activeTab === t.id ? 700 : 500, fontSize: "0.86rem" }}>
+                    {t.label}
+                  </span>
+                  <span style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
+                    {t.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* QUICK SUMMARY FOOTER */}
+          <div
             style={{
-              padding: "10px 18px",
-              borderRadius: 6,
-              border: "none",
-              background: activeTab === t.id ? "#56c6ff" : "transparent",
-              color: activeTab === t.id ? "#041019" : "var(--color-text-muted)",
-              fontWeight: 700,
-              cursor: "pointer",
-              fontSize: "0.88rem",
-              whiteSpace: "nowrap",
+              marginTop: "auto",
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255, 255, 255, 0.02)",
+              border: "1px solid rgba(255, 255, 255, 0.06)",
             }}
           >
-            {t.label}
-          </button>
-        ))}
-      </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span className="muted" style={{ fontSize: "0.75rem" }}>Platform Status:</span>
+              <Badge tone="ok">HEALTHY</Badge>
+            </div>
+            <div style={{ color: "var(--color-text-muted)", fontSize: "0.72rem" }}>
+              Active Keys: {keys.filter((k) => k.is_active).length} · Ingestion: Live
+            </div>
+          </div>
+        </aside>
+
+        {/* MAIN SETTINGS CONTENT AREA */}
+        <main style={{ flex: 1, minWidth: 0 }}>
 
       {/* TAB 1: ORGANIZATION BRANDING */}
       {activeTab === "branding" && (
@@ -890,6 +1057,8 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+        </main>
+      </div>
 
       {/* Prowler Side Panel */}
       <ProwlerSidePanel isOpen={prowlerOpen} onClose={() => setProwlerOpen(false)} />
