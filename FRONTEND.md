@@ -1,6 +1,6 @@
-# Threat Hunting Platform — Frontend Documentation
+# DecodeX — Frontend Documentation
 
-This document describes the **frontend** of the Threat Hunting Platform: UI features, pages/components, API client, auth/realtime flows, known gaps, and a recommended professional folder layout that cleanly separates frontend from backend.
+This document describes the **frontend** of DecodeX (by **DecodeX Security Technologies Private Limited**): UI features, pages/components, API client, auth/realtime flows, known gaps, and a recommended professional folder layout that cleanly separates frontend from backend.
 
 ---
 

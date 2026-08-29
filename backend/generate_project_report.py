@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
+    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -21,8 +22,8 @@ from reportlab.platypus import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DB_PATH = PROJECT_ROOT / "threat.db"
-OUTPUT_PATH = PROJECT_ROOT / "Threat_Hunting_Platform_Report.pdf"
+DB_PATH = PROJECT_ROOT / "threat_hunting.db" if (PROJECT_ROOT / "threat_hunting.db").exists() else PROJECT_ROOT / "threat.db"
+OUTPUT_PATH = PROJECT_ROOT.parent / "DecodeX_Platform_Report.pdf"
 
 
 def read_metrics() -> dict:
@@ -140,7 +141,7 @@ def add_page_number(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(colors.HexColor("#4A5E74"))
-    canvas.drawString(1.5 * cm, 1.2 * cm, "Threat Hunting Platform Report")
+    canvas.drawString(1.5 * cm, 1.2 * cm, "DecodeX Security Technologies Report")
     canvas.drawRightString(A4[0] - 1.5 * cm, 1.2 * cm, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -301,8 +302,15 @@ def build_story(metrics):
     styles = build_styles()
     story = []
 
-    story.append(Spacer(1, 1.2 * cm))
-    story.append(Paragraph("Threat Hunting Platform", styles["ReportTitle"]))
+    logo_file = PROJECT_ROOT / "src" / "th" / "assets" / "decodex_transparent.png"
+    if logo_file.exists():
+        story.append(Spacer(1, 0.4 * cm))
+        story.append(RLImage(str(logo_file), width=5.5 * cm, height=4.5 * cm))
+        story.append(Spacer(1, 0.5 * cm))
+    else:
+        story.append(Spacer(1, 1.2 * cm))
+
+    story.append(Paragraph("DecodeX — Threat Hunting Platform", styles["ReportTitle"]))
     story.append(Paragraph("Detailed Plain-English Project Report With Flowcharts", styles["SubTitle"]))
     story.append(
         Paragraph(
@@ -569,19 +577,21 @@ def build_story(metrics):
 
 def main():
     metrics = read_metrics()
-    doc = SimpleDocTemplate(
-        str(OUTPUT_PATH),
-        pagesize=A4,
-        rightMargin=1.5 * cm,
-        leftMargin=1.5 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.8 * cm,
-        title="Threat Hunting Platform Report",
-        author="OpenAI Codex",
-    )
-    story = build_story(metrics)
-    doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
-    print(f"Created {OUTPUT_PATH}")
+    targets = [OUTPUT_PATH, PROJECT_ROOT.parent / "Threat_Hunting_Platform_Report.pdf"]
+    for out_path in targets:
+        doc = SimpleDocTemplate(
+            str(out_path),
+            pagesize=A4,
+            rightMargin=1.5 * cm,
+            leftMargin=1.5 * cm,
+            topMargin=1.5 * cm,
+            bottomMargin=1.8 * cm,
+            title="DecodeX — Threat Hunting Platform Report",
+            author="DecodeX Security Technologies Private Limited",
+        )
+        story = build_story(metrics)
+        doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
+        print(f"Created {out_path}")
 
 
 if __name__ == "__main__":

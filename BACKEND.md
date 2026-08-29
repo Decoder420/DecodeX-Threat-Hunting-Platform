@@ -1,6 +1,6 @@
-# Threat Hunting Platform — Backend Documentation
+# DecodeX — Backend Documentation
 
-This document describes the **backend** of the Threat Hunting Platform: architecture, modules, APIs, data model, detection pipeline, configuration, and a recommended professional folder layout that cleanly separates backend from frontend.
+This document describes the **backend** of DecodeX (by **DecodeX Security Technologies Private Limited**): architecture, modules, APIs, data model, detection pipeline, configuration, and a recommended professional folder layout that cleanly separates backend from frontend.
 
 ---
 

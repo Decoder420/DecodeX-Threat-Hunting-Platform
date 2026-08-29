@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Threat Hunting Platform - Health Check Script
+# DecodeX Platform - Health Check Script
 # Run this after docker compose up -d to verify the stack is healthy
 
 set -e
@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo "================================================"
-echo "Threat Hunting Platform Health Check"
+echo "DecodeX Platform Health Check"
 echo "================================================"
 echo ""
 

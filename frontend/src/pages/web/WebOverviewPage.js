@@ -17,10 +17,10 @@ import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
 
 const SEV_COLORS = {
-  CRITICAL: "#f87171",
+  CRITICAL: "#ff5c7a",
   HIGH: "#fb923c",
-  MEDIUM: "#fbbf24",
-  LOW: "#60a5fa",
+  MEDIUM: "#f0b429",
+  LOW: "#5ec8ff",
   INFO: "#94a3b8",
 };
 
@@ -76,6 +76,41 @@ export default function WebOverviewPage() {
 
   return (
     <div className="websec__stack">
+      {/* QUICK LAUNCH SHORTCUTS BAR */}
+      <div
+        className="surface websec__panel"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+          padding: "14px 18px",
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Web Application Security Posture</h2>
+          <p className="muted" style={{ margin: "2px 0 0", fontSize: "0.85rem" }}>
+            Automated DAST scanning, OWASP ZAP spidering, and vulnerability management.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link to="/webscan/scans">
+            <Button size="sm" variant="primary">⚡ Launch Scan</Button>
+          </Link>
+          <Link to="/webscan/targets">
+            <Button size="sm">+ Register Target</Button>
+          </Link>
+          <Link to="/webscan/map">
+            <Button size="sm">🗺️ Attack Maps</Button>
+          </Link>
+          <Link to="/webscan/findings">
+            <Button size="sm">🛡️ Triage Findings</Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* KPI STATS GRID */}
       <div className="websec__kpi-grid">
         {[
           ["Targets", t.targets],
@@ -86,9 +121,34 @@ export default function WebOverviewPage() {
           ["High", t.high_findings],
           ["Avg risk", t.avg_risk_score],
         ].map(([label, value]) => (
-          <div key={label} className="surface websec__kpi">
+          <div
+            key={label}
+            className="surface websec__kpi"
+            style={{
+              borderLeft:
+                label === "Critical"
+                  ? "3px solid var(--danger, #ff5c7a)"
+                  : label === "High"
+                  ? "3px solid var(--warn, #fb923c)"
+                  : label === "Authorized"
+                  ? "3px solid var(--ok, #3ee0a2)"
+                  : undefined,
+            }}
+          >
             <div className="websec__kpi-label">{label}</div>
-            <div className="websec__kpi-value">{value ?? 0}</div>
+            <div
+              className="websec__kpi-value"
+              style={{
+                color:
+                  label === "Critical" && value > 0
+                    ? "var(--danger, #ff5c7a)"
+                    : label === "High" && value > 0
+                    ? "var(--warn, #fb923c)"
+                    : undefined,
+              }}
+            >
+              {value ?? 0}
+            </div>
           </div>
         ))}
       </div>
@@ -100,7 +160,7 @@ export default function WebOverviewPage() {
             <div style={{ height: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={sevData} dataKey="value" nameKey="name" outerRadius={90} label>
+                  <Pie data={sevData} dataKey="value" nameKey="name" outerRadius={85} label>
                     {sevData.map((entry) => (
                       <Cell key={entry.name} fill={SEV_COLORS[entry.name] || "#64748b"} />
                     ))}
@@ -119,7 +179,7 @@ export default function WebOverviewPage() {
             <div style={{ height: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={catData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} />
                   <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} />
                   <Tooltip />
@@ -137,23 +197,24 @@ export default function WebOverviewPage() {
         <div className="websec__row">
           <h2>Engine readiness</h2>
           <Link className="btn btn--sm btn--ghost" to="/webscan/health">
-            Scanner health
+            Scanner health ↗
           </Link>
         </div>
         <div className="websec__engine-row">
           {Object.entries(data?.engines || {}).map(([name, info]) => (
             <div key={name} className="websec__engine-chip">
-              <strong>{name}</strong>
+              <strong style={{ textTransform: "uppercase" }}>{name}</strong>
               <Badge tone={info.status === "READY" ? "ok" : "warn"}>
                 {info.status || "UNKNOWN"}
               </Badge>
             </div>
           ))}
         </div>
-        <div className="websec__actions">
+        <div className="websec__actions" style={{ marginTop: 16 }}>
           <Link to="/webscan/targets">Manage targets</Link>
           <Link to="/webscan/scans">View scans</Link>
           <Link to="/webscan/findings">Browse findings</Link>
+          <Link to="/webscan/map">Website Map</Link>
         </div>
       </div>
     </div>

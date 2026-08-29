@@ -30,11 +30,15 @@ export default function Sidebar({ onLogout }) {
   return (
     <aside className="soc-sidebar">
       <div className="soc-sidebar__brand">
-        <div className="app-nav__mark" aria-hidden>
-          TH
+        <div className="app-nav__mark" aria-hidden style={{ overflow: "hidden", padding: 0 }}>
+          <img
+            src={`${process.env.PUBLIC_URL || ""}/logo192.png`}
+            alt="DecodeX"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
         </div>
         <div>
-          <div className="soc-sidebar__title">Threat Hunting</div>
+          <div className="soc-sidebar__title">DecodeX</div>
           <div className="soc-sidebar__sub">
             {user ? `${user.username} · ${user.role}` : "SOC"}
           </div>
@@ -60,6 +64,12 @@ export default function Sidebar({ onLogout }) {
         <Button size="sm" variant="danger" block onClick={onLogout}>
           Logout
         </Button>
+        <div
+          className="soc-sidebar__hint"
+          style={{ fontSize: "0.68rem", opacity: 0.7, marginTop: 8, textAlign: "center" }}
+        >
+          DecodeX Security Technologies
+        </div>
       </div>
     </aside>
   );

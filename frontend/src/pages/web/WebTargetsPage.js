@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import webApi from "../../webApi";
 import Badge from "../../components/ui/Badge";
@@ -11,6 +11,9 @@ export default function WebTargetsPage() {
   const [targets, setTargets] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [envFilter, setEnvFilter] = useState("ALL");
+  const [authFilter, setAuthFilter] = useState("ALL");
   const [form, setForm] = useState({
     name: "",
     url: "https://",
@@ -80,134 +83,240 @@ export default function WebTargetsPage() {
     }
   };
 
+  const filteredTargets = useMemo(() => {
+    return targets.filter((t) => {
+      const matchSearch =
+        !search ||
+        (t.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (t.url || "").toLowerCase().includes(search.toLowerCase()) ||
+        (t.owner || "").toLowerCase().includes(search.toLowerCase());
+
+      const matchEnv =
+        envFilter === "ALL" ||
+        (t.environment || "").toLowerCase() === envFilter.toLowerCase();
+
+      const matchAuth =
+        authFilter === "ALL" ||
+        (t.authorization_status || "").toLowerCase() === authFilter.toLowerCase();
+
+      return matchSearch && matchEnv && matchAuth;
+    });
+  }, [targets, search, envFilter, authFilter]);
+
   return (
     <div className="websec__stack">
       {error ? <div className="surface websec__panel error-text">{error}</div> : null}
 
+      {/* REGISTER TARGET FORM */}
       {canRun ? (
         <form className="surface websec__panel" onSubmit={create}>
-          <h2>Register target</h2>
-          <p className="muted">
-            New targets start as PENDING. Authorization is a separate, audited step.
-          </p>
-          <div className="websec__form-grid">
+          <div className="websec__row">
+            <div>
+              <h2 style={{ margin: 0 }}>Register Web Target</h2>
+              <p className="muted" style={{ margin: "4px 0 0" }}>
+                Add new web applications or API hosts to the assessment inventory. New targets begin in PENDING state until authorization.
+              </p>
+            </div>
+          </div>
+
+          <div className="websec__form-grid" style={{ marginTop: 14 }}>
             <input
               className="field__input"
-              placeholder="Name"
+              placeholder="Target Asset Name (e.g. Production Portal)"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
             />
             <input
               className="field__input"
-              placeholder="https://app.example.com"
+              placeholder="Root URL (https://...)"
               value={form.url}
               onChange={(e) => setForm({ ...form, url: e.target.value })}
               required
             />
             <input
               className="field__input"
-              placeholder="Owner"
+              placeholder="Asset Owner / Team"
               value={form.owner}
               onChange={(e) => setForm({ ...form, owner: e.target.value })}
-            />
-            <input
-              className="field__input"
-              placeholder="Scope (paths/hosts)"
-              value={form.scope}
-              onChange={(e) => setForm({ ...form, scope: e.target.value })}
             />
             <select
               className="field__input"
               value={form.environment}
               onChange={(e) => setForm({ ...form, environment: e.target.value })}
             >
-              <option value="lab">lab</option>
-              <option value="staging">staging</option>
-              <option value="production">production</option>
+              <option value="lab">Lab / Internal</option>
+              <option value="staging">Staging</option>
+              <option value="production">Production</option>
             </select>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <input
+              className="field__input"
+              placeholder="Testing Scope Restrictions / Out-of-bounds paths (optional)"
+              value={form.scope}
+              onChange={(e) => setForm({ ...form, scope: e.target.value })}
+            />
+          </div>
+
+          <div className="websec__actions" style={{ marginTop: 12 }}>
             <Button type="submit" variant="primary">
-              Add target
+              + Register Target
             </Button>
           </div>
         </form>
       ) : null}
 
+      {/* TARGETS LIST & CONTROLS */}
       <div className="surface websec__panel">
-        <h2>Targets</h2>
-        {loading ? <div className="muted">Loading…</div> : null}
-        {!loading && !targets.length ? (
-          <div className="muted">No targets registered.</div>
-        ) : null}
-        <div className="websec__table-wrap">
-          <table className="websec__table">
-            <thead>
-              <tr>
-                <th>Target</th>
-                <th>Authorization</th>
-                <th>Owner</th>
-                <th>Env</th>
-                <th>Last scan</th>
-                <th>Risk</th>
-                <th>Findings</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {targets.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <strong>{t.name}</strong>
-                    <div className="muted websec__mono">{t.url}</div>
-                  </td>
-                  <td>
-                    <Badge tone={t.authorization_status === "AUTHORIZED" ? "ok" : "warn"}>
-                      {t.authorization_status}
-                    </Badge>
-                  </td>
-                  <td>{t.owner || "—"}</td>
-                  <td>{t.environment || "lab"}</td>
-                  <td>{t.last_scan ? new Date(t.last_scan).toLocaleString() : "—"}</td>
-                  <td>{t.risk_score ?? 0}</td>
-                  <td>{t.findings_count ?? 0}</td>
-                  <td>{t.enabled ? t.last_status || "ready" : "disabled"}</td>
-                  <td className="websec__actions-cell">
-                    {canRun && t.authorization_status !== "AUTHORIZED" ? (
-                      <Button
-                        size="sm"
-                        disabled={busyId === t.id}
-                        onClick={() => authorize(t.id, t.name)}
-                      >
-                        Authorize
-                      </Button>
-                    ) : null}
-                    {canRun && t.authorization_status === "AUTHORIZED" && t.enabled ? (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        onClick={() => navigate(`/webscan/scans?target=${t.id}`)}
-                      >
-                        Scan
-                      </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      onClick={() => navigate(`/webscan/map/target/${t.id}`)}
-                    >
-                      Website Map
-                    </Button>
-                    {canRun && t.enabled ? (
-                      <Button size="sm" variant="danger" onClick={() => disable(t.id)}>
-                        Disable
-                      </Button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="websec__row">
+          <div>
+            <h2 style={{ margin: 0 }}>Target Inventory ({filteredTargets.length})</h2>
+            <p className="muted" style={{ margin: "4px 0 0" }}>
+              Authorized web assets eligible for active crawling, OWASP ZAP spidering, and vulnerability scanning.
+            </p>
+          </div>
+          <Button size="sm" onClick={load}>
+            ↻ Refresh
+          </Button>
         </div>
+
+        {/* SEARCH & FILTERS */}
+        <div style={{ display: "flex", gap: 12, marginTop: 14, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="field__input"
+            style={{ flex: "1 1 240px", minWidth: 200 }}
+            placeholder="Search targets by name, URL, or owner..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: "0.85rem" }}>Environment:</span>
+            <select
+              className="field__input"
+              style={{ width: "auto", padding: "6px 10px" }}
+              value={envFilter}
+              onChange={(e) => setEnvFilter(e.target.value)}
+            >
+              <option value="ALL">All Environments</option>
+              <option value="production">Production</option>
+              <option value="staging">Staging</option>
+              <option value="lab">Lab / Internal</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: "0.85rem" }}>Authorization:</span>
+            <select
+              className="field__input"
+              style={{ width: "auto", padding: "6px 10px" }}
+              value={authFilter}
+              onChange={(e) => setAuthFilter(e.target.value)}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="authorized">Authorized</option>
+              <option value="pending">Pending</option>
+              <option value="revoked">Revoked</option>
+            </select>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="muted">Loading target registry…</p>
+        ) : !filteredTargets.length ? (
+          <p className="muted">No targets matching filter criteria.</p>
+        ) : (
+          <div className="websec__table-wrap">
+            <table className="websec__table">
+              <thead>
+                <tr>
+                  <th>Target Name</th>
+                  <th>URL / Domain</th>
+                  <th>Environment</th>
+                  <th>Scope</th>
+                  <th>Authorization</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTargets.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <strong style={{ fontSize: "0.95rem" }}>{t.name}</strong>
+                      <div className="muted" style={{ fontSize: "0.75rem" }}>
+                        Owner: {t.owner || "Security Operations"}
+                      </div>
+                    </td>
+                    <td className="websec__mono" style={{ color: "var(--accent, #3ee0a2)" }}>
+                      {t.url}
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          t.environment === "production"
+                            ? "danger"
+                            : t.environment === "staging"
+                            ? "warn"
+                            : "ok"
+                        }
+                      >
+                        {t.environment || "lab"}
+                      </Badge>
+                    </td>
+                    <td className="muted" style={{ fontSize: "0.8rem", maxWidth: 180 }}>
+                      {t.scope || "Full domain testing"}
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          t.authorization_status === "authorized"
+                            ? "ok"
+                            : t.authorization_status === "revoked"
+                            ? "danger"
+                            : "warn"
+                        }
+                      >
+                        {t.authorization_status}
+                      </Badge>
+                    </td>
+                    <td className="websec__actions-cell">
+                      {t.authorization_status === "authorized" && canRun ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => navigate(`/webscan/scans?target=${t.id}`)}
+                        >
+                          ⚡ Scan Now
+                        </Button>
+                      ) : null}
+
+                      {t.authorization_status !== "authorized" && canRun ? (
+                        <Button
+                          size="sm"
+                          disabled={busyId === t.id}
+                          onClick={() => authorize(t.id, t.name)}
+                        >
+                          Authorize
+                        </Button>
+                      ) : null}
+
+                      {t.authorization_status === "authorized" && canRun ? (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={busyId === t.id}
+                          onClick={() => disable(t.id)}
+                        >
+                          Revoke
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

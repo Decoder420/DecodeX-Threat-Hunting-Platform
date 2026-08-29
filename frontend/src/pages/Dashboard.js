@@ -886,7 +886,7 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                 <div className="soc-header" data-reveal>
                     <div>
                         <Badge tone="live">Live SOC Console</Badge>
-                        <h1>Threat Hunting Dashboard</h1>
+                        <h1>DecodeX Threat Hunting Dashboard</h1>
                         <p>
                             Real-time alert monitoring, threat analytics, IOC feeds
                             and incident response.

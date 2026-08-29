@@ -83,8 +83,21 @@ function LoginScreen({ onSuccess }) {
       <div className="login-shell__overlay" aria-hidden />
       <div className="login-shell__grid" aria-hidden />
       <form ref={cardRef} className="surface login-card" onSubmit={handleLogin}>
-        <div className="login-card__eyebrow">Threat Hunting Platform</div>
-        <h1>SIEM Access</h1>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+          <img
+            src={`${process.env.PUBLIC_URL || ""}/decodex_emblem.png`}
+            alt="DecodeX Logo"
+            style={{
+              width: 130,
+              height: "auto",
+              borderRadius: 12,
+              border: "1px solid rgba(86, 198, 255, 0.25)",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+            }}
+          />
+        </div>
+        <div className="login-card__eyebrow">DecodeX Security Technologies</div>
+        <h1>DecodeX Console</h1>
         <p className="login-card__copy">
           Sign in for live alerts, MITRE context, cases, and authorized response.
         </p>

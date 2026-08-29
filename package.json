@@ -1,5 +1,7 @@
 {
-  "name": "threat-hunting-platform",
+  "name": "decodex-platform",
+  "description": "DecodeX — Advanced Threat Hunting, Detection Engineering & SOC Telemetry Platform",
+  "author": "DecodeX Security Technologies Private Limited",
   "private": true,
   "scripts": {
     "start:backend": "cd backend && set PYTHONPATH=src&& python -m th.webapp",

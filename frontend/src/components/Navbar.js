@@ -36,11 +36,15 @@ export default function Navbar({
   return (
     <nav ref={navRef} className="app-nav">
       <div className="app-nav__brand">
-        <div className="app-nav__mark" aria-hidden>
-          TH
+        <div className="app-nav__mark" aria-hidden style={{ overflow: "hidden", padding: 0 }}>
+          <img
+            src={`${process.env.PUBLIC_URL || ""}/logo192.png`}
+            alt="DecodeX"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
         </div>
         <div>
-          <h2 className="app-nav__title">Threat Hunting SIEM</h2>
+          <h2 className="app-nav__title">DecodeX SOC</h2>
           <p className="app-nav__subtitle">
             {user
               ? `${user.username} · ${user.role}`

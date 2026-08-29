@@ -7,7 +7,7 @@ from th.anomaly import AnomalyDetector
 
 
 def main() -> None:
-    print("[bold green]Threat Hunting Platform started[/bold green]")
+    print("[bold green]DecodeX Threat Hunting Platform started[/bold green]")
     db = get_db()
 
     try:

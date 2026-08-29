@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title or "Threat Hunting Platform" }}</title>
+    <title>{{ title or "DecodeX — Threat Hunting Platform" }}</title>
     <style>
         :root {
             --bg: #07111d;
@@ -61,7 +61,7 @@
         {% if session.get("user_id") %}
         <nav class="nav">
             <div>
-                <strong>Threat Hunting Platform</strong>
+                <strong>DecodeX SOC</strong>
                 <div class="muted">Logged in as {{ session.get("username") }} ({{ session.get("role") }})</div>
             </div>
             <div class="nav-links">

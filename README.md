@@ -1,11 +1,12 @@
-# Threat Hunting Platform
+# DecodeX — Threat Hunting & Detection Engineering Platform
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/manan-m-shah/threat-hunting-platform)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Company: DecodeX Security Technologies](https://img.shields.io/badge/Company-DecodeX%20Security%20Technologies-blue.svg)](https://github.com/manan-m-shah/threat-hunting-platform)
 
-The Threat Hunting Platform is a Python-based security monitoring and detection prototype designed to simulate the core workflow of a modern Security Operations Center (SOC). The system collects logs, stores them in a database, evaluates them against hunting rules, enriches alerts with MITRE ATT&CK context, and presents the output in a web-based dashboard for investigation and case tracking.
+**DecodeX** is an advanced security monitoring and detection engineering platform developed by **DecodeX Security Technologies Private Limited**. Designed to simulate and empower the core workflow of a modern Security Operations Center (SOC), DecodeX collects logs, evaluates telemetry against hunting rules, enriches alerts with MITRE ATT&CK context, correlates multi-stage attack patterns, and provides an intuitive web-based dashboard for real-time investigation, case management, and incident response.
 
-This project provides a practical, hands-on tool for learning about security operations, detection engineering, and incident response workflows.
+This platform provides a hands-on, end-to-end environment for security operations, detection engineering, and incident response workflows.
 
 ![Dashboard Screenshot](https://raw.githubusercontent.com/manan-m-shah/threat-hunting-platform/main/docs/dashboard.png)
 
@@ -218,14 +219,16 @@ Recommended deeper modular layout is documented in `BACKEND.md` §10 and `FRONTE
 - Data Processing Pipelines
 - Cyber Threat Intelligence (CTI)
 
-## License
+## ⚖️ License & Copyright
+ 
+Copyright © 2026 **DecodeX Security Technologies Private Limited**.  
+Licensed under the MIT License.
 
-This project is licensed under the MIT License.
 ---
 
-## 📌 Author
+## 📌 Company & Engineering
 
-Manan Mandal  
-Cybersecurity Enthusiast | SOC | Threat Hunting | SIEM Engineering# Threat-Hunting-Platform
-# Threat-Hunting-Platform
+**DecodeX Security Technologies Private Limited**  
+Engineered by Manan Mandal (`Decoder`)  
+*Cybersecurity • Threat Hunting • Detection Engineering • SOC Operations*
 

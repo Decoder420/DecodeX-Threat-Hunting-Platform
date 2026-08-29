@@ -9,12 +9,20 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    Image as RLImage,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DB_PATH = PROJECT_ROOT / "threat.db"
-OUTPUT_PATH = PROJECT_ROOT / "Threat_Hunting_Platform_User_Guide.pdf"
+DB_PATH = PROJECT_ROOT / "threat_hunting.db" if (PROJECT_ROOT / "threat_hunting.db").exists() else PROJECT_ROOT / "threat.db"
+OUTPUT_PATH = PROJECT_ROOT.parent / "DecodeX_User_Guide.pdf"
 
 
 def load_metrics() -> dict:
@@ -104,7 +112,7 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(colors.HexColor("#4A627A"))
-    canvas.drawString(1.5 * cm, 1.1 * cm, "Threat Hunting Platform User Guide")
+    canvas.drawString(1.5 * cm, 1.1 * cm, "DecodeX User Guide — DecodeX Security Technologies")
     canvas.drawRightString(A4[0] - 1.5 * cm, 1.1 * cm, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -230,8 +238,15 @@ def build_story(metrics):
     styles = build_styles()
     story = []
 
-    story.append(Spacer(1, 1.1 * cm))
-    story.append(Paragraph("Threat Hunting Platform", styles["GuideTitle"]))
+    logo_file = PROJECT_ROOT / "src" / "th" / "assets" / "decodex_transparent.png"
+    if logo_file.exists():
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(RLImage(str(logo_file), width=5.5 * cm, height=4.5 * cm))
+        story.append(Spacer(1, 0.5 * cm))
+    else:
+        story.append(Spacer(1, 1.1 * cm))
+
+    story.append(Paragraph("DecodeX — Threat Hunting Platform", styles["GuideTitle"]))
     story.append(Paragraph("Detailed User Guide And Dashboard Explanation", styles["SubTitle"]))
     story.append(
         Paragraph(
@@ -249,7 +264,8 @@ def build_story(metrics):
     story.append(Paragraph("1. What This Platform Does", styles["SectionTitle"]))
     story.append(
         Paragraph(
-            "The Threat Hunting Platform is a small SOC-style monitoring system. It collects security logs, stores them in a database, "
+            "DecodeX is an advanced SOC-style monitoring system engineered by DecodeX Security Technologies Private Limited. "
+            "It collects security logs, stores them in a database, "
             "checks them against rules and IOC watchlists, creates alerts when suspicious activity is found, and then shows those alerts in a dashboard. "
             "The dashboard is not only for viewing alerts; it also supports investigation, case management, Sigma imports, suppression tuning, and IOC feed synchronization.",
             styles["Body"],
@@ -531,19 +547,21 @@ def build_story(metrics):
 
 def main():
     metrics = load_metrics()
-    doc = SimpleDocTemplate(
-        str(OUTPUT_PATH),
-        pagesize=A4,
-        rightMargin=1.5 * cm,
-        leftMargin=1.5 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.8 * cm,
-        title="Threat Hunting Platform User Guide",
-        author="OpenAI Codex",
-    )
-    story = build_story(metrics)
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
-    print(f"Created {OUTPUT_PATH}")
+    targets = [OUTPUT_PATH, PROJECT_ROOT.parent / "Threat_Hunting_Platform_User_Guide.pdf"]
+    for out_path in targets:
+        doc = SimpleDocTemplate(
+            str(out_path),
+            pagesize=A4,
+            rightMargin=1.5 * cm,
+            leftMargin=1.5 * cm,
+            topMargin=1.5 * cm,
+            bottomMargin=1.8 * cm,
+            title="DecodeX — Threat Hunting Platform User Guide",
+            author="DecodeX Security Technologies Private Limited",
+        )
+        story = build_story(metrics)
+        doc.build(story, onFirstPage=footer, onLaterPages=footer)
+        print(f"Created {out_path}")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
-# Threat Hunting Platform
+# DecodeX — Threat Hunting Platform
 
 ## Full Project Report
+*DecodeX Security Technologies Private Limited*
 
 ## 1. Introduction
 
-The Threat Hunting Platform is a Python-based security monitoring and detection prototype designed to simulate the core workflow of a modern Security Operations Center (SOC). The system collects logs, stores them in a database, evaluates them against hunting rules, enriches alerts with MITRE ATT&CK context, and presents the output in a web-based dashboard for investigation and case tracking.
+DecodeX is an advanced security monitoring and detection engineering platform developed by **DecodeX Security Technologies Private Limited**, designed to simulate and empower the core workflow of a modern Security Operations Center (SOC). The system collects logs, stores them in a database, evaluates them against hunting rules, enriches alerts with MITRE ATT&CK context, and presents the output in a web-based dashboard for investigation and case tracking.
 
 This project started as a local file-based detection engine that read from a static log file and generated alerts. Over time, it was expanded into a more complete SOC-style platform with:
 
