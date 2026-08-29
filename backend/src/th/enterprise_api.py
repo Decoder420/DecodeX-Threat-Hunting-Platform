@@ -406,7 +406,39 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                        "created_at": n.created_at.isoformat()} for n in notes],
         })
 
+    @app.route("/api/cases/<int:case_id>", methods=["PATCH", "POST"])
+    @login_required
+    @require_permission("cases.write")
+    def update_case(case_id):
+        db = get_db()
+        case = db.get(Case, case_id)
+        if not case:
+            return _err("NOT_FOUND", "Case not found.", 404)
+        data = request.get_json(silent=True) or {}
+        if "status" in data:
+            case.status = (data["status"] or "OPEN").upper()
+        if "assigned_to" in data:
+            case.assigned_to = data["assigned_to"]
+        if "severity" in data:
+            case.severity = (data["severity"] or "MEDIUM").upper()
+        if "title" in data and data["title"]:
+            case.title = data["title"]
+        if "description" in data:
+            case.description = data["description"]
+        case.updated_at = utcnow()
+        db.commit()
+        write_audit(db, action="case.update", user=g.current_user,
+                    resource_type="case", resource_id=case.id, details=f"status={case.status}")
+        return jsonify({
+            "id": case.id,
+            "case_number": case.case_number,
+            "status": case.status,
+            "assigned_to": case.assigned_to,
+            "severity": case.severity,
+        })
+
     @app.route("/api/cases/<int:case_id>/notes", methods=["POST"])
+
     @login_required
     @require_permission("cases.write")
     def add_case_note(case_id):

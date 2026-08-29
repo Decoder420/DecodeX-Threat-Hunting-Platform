@@ -870,7 +870,7 @@ register_enterprise_routes(
 def handle_connect():
     """Accept incoming WebSocket connections."""
     print(f"[Socket.IO] Client connected: {request.sid}")
-    emit('connected', {'data': 'Connected to Threat Hunting SIEM', 'sid': request.sid})
+    emit('connected', {'data': 'Connected to DecodeX SOC SIEM', 'sid': request.sid})
 
 @socketio.on('disconnect')
 def handle_disconnect():

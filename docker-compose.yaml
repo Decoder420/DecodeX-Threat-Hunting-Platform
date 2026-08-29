@@ -32,6 +32,9 @@ services:
 
     ports:
       - "5001:5000"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/threat_hunting.db:/app/threat_hunting.db
     depends_on:
       zap:
         condition: service_healthy

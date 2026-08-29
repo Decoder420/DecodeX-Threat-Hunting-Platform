@@ -1,7 +1,7 @@
 rule WebShell_Generic_Detection {
     meta:
         description = "Detects common web shell patterns and functions"
-        author = "Manan Mandal - Threat Hunting Platform"
+        author = "DecodeX Security Technologies"
         severity = "Critical"
         tactic = "Persistence"
 

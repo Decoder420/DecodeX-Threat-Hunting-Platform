@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "decodex_transparent.png"
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
@@ -197,7 +200,7 @@ def _page_footer(canvas, doc, was_id: str):
     canvas.setFont("Helvetica-Bold", 7)
     canvas.drawString(18 * mm, page_h - 11, "CONFIDENTIAL • WEB APPLICATION SECURITY ASSESSMENT")
     canvas.setFont("Helvetica", 7)
-    canvas.drawRightString(page_w - 18 * mm, page_h - 11, "Threat Hunting Platform")
+    canvas.drawRightString(page_w - 18 * mm, page_h - 11, "DecodeX Security Technologies")
 
     # Footer
     canvas.setStrokeColor(LINE)
@@ -236,13 +239,30 @@ def _draw_full_cover(canvas, ctx: dict):
     path.close()
     canvas.drawPath(path, fill=1, stroke=0)
 
-    # Brand kicker
-    canvas.setFillColor(ACCENT)
-    canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(22 * mm, page_h - 32 * mm, "THREAT HUNTING PLATFORM  •  WEB APPSEC")
-    canvas.setStrokeColor(ACCENT)
-    canvas.setLineWidth(1.2)
-    canvas.line(22 * mm, page_h - 35 * mm, 95 * mm, page_h - 35 * mm)
+    # Brand / kicker with transparent logo at top
+    if LOGO_PATH.exists():
+        canvas.drawImage(
+            str(LOGO_PATH),
+            22 * mm,
+            page_h - 38 * mm,
+            width=18 * mm,
+            height=15 * mm,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+        canvas.setFillColor(ACCENT)
+        canvas.setFont("Helvetica-Bold", 10)
+        canvas.drawString(44 * mm, page_h - 30 * mm, "DECODEX SECURITY TECHNOLOGIES  •  WEB APPSEC")
+        canvas.setStrokeColor(ACCENT)
+        canvas.setLineWidth(1.2)
+        canvas.line(44 * mm, page_h - 33 * mm, 130 * mm, page_h - 33 * mm)
+    else:
+        canvas.setFillColor(ACCENT)
+        canvas.setFont("Helvetica-Bold", 10)
+        canvas.drawString(22 * mm, page_h - 32 * mm, "DECODEX SECURITY TECHNOLOGIES  •  WEB APPSEC")
+        canvas.setStrokeColor(ACCENT)
+        canvas.setLineWidth(1.2)
+        canvas.line(22 * mm, page_h - 35 * mm, 95 * mm, page_h - 35 * mm)
 
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 25)
@@ -301,13 +321,14 @@ def _draw_full_cover(canvas, ctx: dict):
     # Prepared by
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(22 * mm, 42 * mm, "ASSESSMENT CONDUCTED BY")
+    canvas.drawString(22 * mm, 44 * mm, "ASSESSMENT CONDUCTED BY")
     canvas.setFillColor(WHITE)
-    canvas.setFont("Helvetica-Bold", 12)
-    canvas.drawString(22 * mm, 34 * mm, ctx.get("prepared_by") or "Manan Mandal")
-    canvas.setFont("Helvetica", 9)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(22 * mm, 37 * mm, "DecodeX Security Technologies Private Limited")
+    canvas.setFont("Helvetica", 8.5)
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
-    canvas.drawString(22 * mm, 28 * mm, "Information Security Engineer  •  SOC Operations")
+    lead = ctx.get("prepared_by") or "Manan Mandal"
+    canvas.drawString(22 * mm, 31 * mm, f"Lead Security Engineer: {lead}  •  SOC Operations")
 
     # Footer strip
     canvas.setFillColor(colors.HexColor("#071521"))

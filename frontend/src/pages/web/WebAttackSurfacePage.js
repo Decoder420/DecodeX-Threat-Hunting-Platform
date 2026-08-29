@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import webApi from "../../webApi";
 import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
@@ -7,6 +8,7 @@ export default function WebAttackSurfacePage() {
   const [surfaces, setSurfaces] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -25,57 +27,215 @@ export default function WebAttackSurfacePage() {
     load();
   }, []);
 
+  const filteredSurfaces = useMemo(() => {
+    if (!search) return surfaces;
+    const term = search.toLowerCase();
+    return surfaces.filter((s) => {
+      const name = (s.target?.name || "").toLowerCase();
+      const url = (s.target?.url || "").toLowerCase();
+      const matchUrl = (s.urls || []).some((u) => u.toLowerCase().includes(term));
+      const matchTech = (s.technologies || []).some((t) =>
+        (t.name || t.technology || "").toLowerCase().includes(term)
+      );
+      const matchPort = (s.ports || []).some((p) => String(p.port).includes(term));
+      return name.includes(term) || url.includes(term) || matchUrl || matchTech || matchPort;
+    });
+  }, [surfaces, search]);
+
+  const metrics = useMemo(() => {
+    const totalTargets = surfaces.length;
+    const totalUrls = surfaces.reduce((acc, s) => acc + (s.urls || []).length, 0);
+    const totalPorts = surfaces.reduce((acc, s) => acc + (s.ports || []).length, 0);
+    return { totalTargets, totalUrls, totalPorts };
+  }, [surfaces]);
+
   return (
     <div className="websec__stack">
       <div className="surface websec__panel">
         <div className="websec__row">
-          <h2>Attack surface</h2>
+          <div>
+            <h2 style={{ margin: 0 }}>Attack Surface Explorer</h2>
+            <p className="muted" style={{ margin: "4px 0 0" }}>
+              Consolidated asset inventory of discovered web routes, open ports, and fingerprinted technologies from completed security scans.
+            </p>
+          </div>
           <Button size="sm" onClick={load}>
-            Refresh
+            ↻ Refresh
           </Button>
         </div>
-        <p className="muted">
-          Hosts, ports, technologies, and discovered URLs from the latest completed scans.
-        </p>
+
+        {/* METRICS TILES */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: 12,
+            marginTop: 16,
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ padding: "10px 14px", background: "rgba(255, 255, 255, 0.02)", borderRadius: 6, border: "1px solid var(--line, #222)" }}>
+            <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Targets Assessed</div>
+            <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{metrics.totalTargets}</div>
+          </div>
+          <div style={{ padding: "10px 14px", background: "rgba(255, 255, 255, 0.02)", borderRadius: 6, border: "1px solid var(--line, #222)" }}>
+            <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Discovered Endpoints</div>
+            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--accent, #3ee0a2)" }}>{metrics.totalUrls}</div>
+          </div>
+          <div style={{ padding: "10px 14px", background: "rgba(255, 255, 255, 0.02)", borderRadius: 6, border: "1px solid var(--line, #222)" }}>
+            <div className="muted" style={{ fontSize: "0.75rem", textTransform: "uppercase" }}>Discovered Service Ports</div>
+            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--info, #5ec8ff)" }}>{metrics.totalPorts}</div>
+          </div>
+        </div>
+
+        {/* SEARCH BAR */}
+        <input
+          className="field__input"
+          style={{ width: "100%", marginBottom: 16 }}
+          placeholder="Filter attack surface by target name, URL, endpoint path, technology, or port..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
         {error ? <p className="error-text">{error}</p> : null}
-        {loading ? <div className="muted">Loading…</div> : null}
-        {!loading && !surfaces.length ? (
-          <div className="muted">No completed scans yet.</div>
+        {loading ? <div className="muted">Loading attack surface telemetry…</div> : null}
+        {!loading && !filteredSurfaces.length ? (
+          <div className="muted">No matching attack surface records found.</div>
         ) : null}
 
-        {surfaces.map((node) => (
-          <div key={node.scan_id} className="websec__tree">
-            <div className="websec__tree-host">
-              <strong>{node.target?.name || `Target #${node.target?.id}`}</strong>
-              <span className="websec__mono">{node.target?.url}</span>
-              <Badge>risk {node.risk_score}</Badge>
+        {/* TARGET ATTACK SURFACE CARDS */}
+        {filteredSurfaces.map((node) => (
+          <div
+            key={node.scan_id}
+            className="surface"
+            style={{
+              padding: 16,
+              marginBottom: 16,
+              border: "1px solid var(--line, rgba(255, 255, 255, 0.1))",
+              borderRadius: 8,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <h3 style={{ margin: 0 }}>
+                    {node.target?.name || `Target #${node.target?.id}`}
+                  </h3>
+                  <Badge tone={node.risk_score >= 70 ? "danger" : node.risk_score >= 40 ? "warn" : "ok"}>
+                    Risk {node.risk_score}/100
+                  </Badge>
+                </div>
+                <div className="websec__mono" style={{ fontSize: "0.85rem", color: "var(--accent, #3ee0a2)", marginTop: 2 }}>
+                  {node.target?.url}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Link to={`/webscan/map?scan=${node.scan_id}`}>
+                  <Button size="sm" variant="primary">
+                    🗺️ Explore Website Map
+                  </Button>
+                </Link>
+                <Link to={`/webscan/findings?scan=${node.scan_id}`}>
+                  <Button size="sm">
+                    View Findings
+                  </Button>
+                </Link>
+              </div>
             </div>
-            <ul className="websec__tree-list">
-              {(node.ports || []).length ? (
-                (node.ports || []).map((p, idx) => (
-                  <li key={`${p.port}-${idx}`}>
-                    {p.port}/{p.protocol || "tcp"} — {p.state || "open"}{" "}
-                    {p.service || p.product || ""}
-                  </li>
-                ))
-              ) : (
-                <li className="muted">No port data (Nmap skipped or unavailable)</li>
-              )}
-              {(node.technologies || []).map((tech, idx) => (
-                <li key={`t-${idx}`}>
-                  Tech: {tech.name || tech.technology}
-                  {tech.version ? ` ${tech.version}` : ""}{" "}
-                  <span className="muted">
-                    ({tech.confidence != null ? `${tech.confidence}%` : "n/a"})
-                  </span>
-                </li>
-              ))}
-              {(node.urls || []).slice(0, 15).map((u) => (
-                <li key={u} className="websec__mono">
-                  {u}
-                </li>
-              ))}
-            </ul>
+
+            {/* OPEN PORTS SECTION */}
+            <div style={{ marginBottom: 12 }}>
+              <span className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 600 }}>
+                Discovered Service Ports:
+              </span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {(node.ports || []).length ? (
+                  node.ports.map((p, idx) => (
+                    <span
+                      key={`${p.port}-${idx}`}
+                      style={{
+                        padding: "3px 8px",
+                        background: "rgba(94, 200, 255, 0.1)",
+                        border: "1px solid rgba(94, 200, 255, 0.3)",
+                        borderRadius: 4,
+                        fontSize: "0.78rem",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      {p.port}/{p.protocol || "tcp"} {p.service ? `(${p.service})` : ""}
+                    </span>
+                  ))
+                ) : (
+                  <span className="muted" style={{ fontSize: "0.8rem" }}>Standard Web (80/443)</span>
+                )}
+              </div>
+            </div>
+
+            {/* DETECTED TECHNOLOGIES */}
+            <div style={{ marginBottom: 12 }}>
+              <span className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 600 }}>
+                Fingerprinted Web Technologies:
+              </span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {(node.technologies || []).length ? (
+                  node.technologies.map((t, idx) => (
+                    <span
+                      key={`tech-${idx}`}
+                      style={{
+                        padding: "3px 8px",
+                        background: "rgba(62, 224, 162, 0.08)",
+                        border: "1px solid rgba(62, 224, 162, 0.25)",
+                        borderRadius: 4,
+                        fontSize: "0.78rem",
+                      }}
+                    >
+                      <strong>{t.name || t.technology}</strong>
+                      {t.version ? ` v${t.version}` : ""}
+                      {t.confidence != null ? ` (${t.confidence}%)` : ""}
+                    </span>
+                  ))
+                ) : (
+                  <span className="muted" style={{ fontSize: "0.8rem" }}>Standard Web Stack</span>
+                )}
+              </div>
+            </div>
+
+            {/* ENDPOINTS LIST */}
+            <div>
+              <span className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 600 }}>
+                Discovered Endpoints Sample ({(node.urls || []).length} total):
+              </span>
+              <div
+                style={{
+                  marginTop: 6,
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  background: "#03070d",
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--line, #222)",
+                }}
+              >
+                {(node.urls || []).length ? (
+                  (node.urls || []).map((u, idx) => (
+                    <div
+                      key={`${u}-${idx}`}
+                      style={{
+                        fontSize: "0.8rem",
+                        fontFamily: "monospace",
+                        color: "var(--text-muted, #8fa3a0)",
+                        padding: "2px 0",
+                        borderBottom: "1px solid rgba(255,255,255,0.03)",
+                      }}
+                    >
+                      {u}
+                    </div>
+                  ))
+                ) : (
+                  <div className="muted" style={{ fontSize: "0.8rem" }}>No crawled endpoints recorded.</div>
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </div>
