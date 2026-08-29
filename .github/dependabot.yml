@@ -1,30 +1,98 @@
 version: 2
 updates:
-  # Maintain dependencies for npm in frontend
+  # 1. Frontend React Dependencies (npm)
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(frontend)"
+      include: "scope"
     labels:
       - "dependencies"
       - "frontend"
+      - "security"
+    groups:
+      frontend-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  # Maintain dependencies for Python backend
+  # 2. Root Tooling Dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(root)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "tooling"
+
+  # 3. Backend Python Dependencies (pip)
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
     open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(backend)"
+      include: "scope"
     labels:
       - "dependencies"
       - "backend"
+      - "security"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
-  # Maintain GitHub Actions dependencies
+  # 4. Docker Container Base Images
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # 5. GitHub Actions Workflows (CI/CD)
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    commit-message:
+      prefix: "ci(actions)"
     labels:
       - "dependencies"
       - "ci"
