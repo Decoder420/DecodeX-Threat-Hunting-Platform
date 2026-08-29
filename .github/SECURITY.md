@@ -20,7 +20,7 @@ Please report suspected security issues privately so we can investigate before d
 ### How to report
 
 1. Prefer **GitHub Security Advisories** for this repository:  
-   **Security → Report a vulnerability** (or [advisories](https://github.com/Decoder420/Threat-Hunting-Platform/security/advisories/new) if available on the repo).
+   **Security → Report a vulnerability** (or [advisories](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/security/advisories/new) if available on the repo).
 2. If advisories are unavailable, email the maintainer privately using the contact method listed on the GitHub profile / repository owner page, with subject:  
    `[SECURITY] DecodeX Platform`
 

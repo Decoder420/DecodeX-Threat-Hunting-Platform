@@ -1,13 +1,13 @@
 # DecodeX — Threat Hunting, SIEM & Web Application Security Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CodeQL Security Analysis](https://github.com/Decoder420/Threat-Hunting-Platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/Decoder420/Threat-Hunting-Platform/actions/workflows/codeql.yml)
+[![CodeQL Security Analysis](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/actions/workflows/codeql.yml)
 [![Dependabot Enabled](https://img.shields.io/badge/Dependabot-Active-02569B?logo=dependabot&logoColor=white)](.github/dependabot.yml)
 [![Docker](https://img.shields.io/badge/Docker-Compose%20Ready-2496ED?logo=docker&logoColor=white)](docker-compose.yaml)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](backend/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](frontend/)
 [![OWASP ZAP](https://img.shields.io/badge/OWASP%20ZAP-v2.17.0-005EA2?logo=owasp&logoColor=white)](https://www.zaproxy.org/)
-[![Discussions](https://img.shields.io/badge/Discussions-Join%20Community-0969DA?logo=github)](https://github.com/Decoder420/Threat-Hunting-Platform/discussions)
+[![Discussions](https://img.shields.io/badge/Discussions-Join%20Community-0969DA?logo=github)](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/discussions)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Decoder420-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Decoder420)
 
 **DecodeX** is an enterprise-grade Security Operations Center (SOC), Threat Hunting, and Web Application Security (DAST) platform developed by **DecodeX Security Technologies Private Limited**. 
@@ -141,7 +141,7 @@ The easiest way to run the entire platform (Backend, Frontend, OWASP ZAP, Nginx)
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/Decoder420/Threat-Hunting-Platform.git
+   git clone https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform.git
    cd Threat-Hunting-Platform
    ```
 
@@ -302,8 +302,8 @@ Git checkpoint branches and tags are permanently preserved:
 
 ## 💬 Community & Contributing
 
-- **Discussions**: Have questions, ideas, or custom Sigma rules? Join the conversation on [GitHub Discussions](https://github.com/Decoder420/Threat-Hunting-Platform/discussions).
-- **Issues**: Report bugs or request enhancements via [GitHub Issues](https://github.com/Decoder420/Threat-Hunting-Platform/issues).
+- **Discussions**: Have questions, ideas, or custom Sigma rules? Join the conversation on [GitHub Discussions](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/discussions).
+- **Issues**: Report bugs or request enhancements via [GitHub Issues](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/issues).
 - **Security Policy**: For responsible disclosure, please refer to our [Security Policy](.github/SECURITY.md).
 - **Support**: If you find this project helpful, consider [sponsoring the project](https://github.com/sponsors/Decoder420) or giving it a ⭐ on GitHub!
 

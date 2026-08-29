@@ -39,7 +39,7 @@ jobs:
 
       - name: Build React application
         env:
-          PUBLIC_URL: /Threat-Hunting-Platform
+          PUBLIC_URL: /DecodeX-Threat-Hunting-Platform
         run: npm run build
 
       - name: Prepare SPA fallback
