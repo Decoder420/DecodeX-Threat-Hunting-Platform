@@ -38,29 +38,63 @@ def normalize_event_record(record: dict, source_name: str, source_type: str) -> 
 
     timestamp_value = record.get("timestamp") or record.get("time")
     if timestamp_value is None:
-        raise ValueError("missing timestamp")
+        parsed_time = utcnow()
+    elif isinstance(timestamp_value, (int, float)):
+        secs = timestamp_value / 1000.0 if timestamp_value > 1e11 else float(timestamp_value)
+        parsed_time = datetime.fromtimestamp(secs, tz=timezone.utc)
+    else:
+        timestamp_text = str(timestamp_value).strip()
+        try:
+            parsed_time = datetime.fromisoformat(timestamp_text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                val = float(timestamp_text)
+                parsed_time = datetime.fromtimestamp(val / 1000.0 if val > 1e11 else val, tz=timezone.utc)
+            except Exception:
+                parsed_time = utcnow()
 
-    timestamp_text = str(timestamp_value)
-    try:
-        parsed_time = datetime.fromisoformat(timestamp_text.replace("Z", "+00:00"))
-    except ValueError:
-        parsed_time = datetime.fromtimestamp(int(timestamp_text) / 1000.0, tz=timezone.utc)
     # Store naive UTC for SQLite compatibility (avoid aware/naive compare errors).
     if parsed_time.tzinfo is not None:
         parsed_time = parsed_time.astimezone(timezone.utc).replace(tzinfo=None)
 
-    host = record.get("host") or record.get("hostname") or source_name
-    user = record.get("user") or record.get("service") or ""
-    process = record.get("process") or record.get("event_type") or record.get("level") or ""
-    commandline = record.get("commandline") or record.get("message") or record.get("text") or ""
-    ip = record.get("ip") or record.get("source_ip") or record.get("client_ip") or ""
-    domain = record.get("domain") or record.get("request_host") or ""
+    proxy_meta = record.get("proxy") if isinstance(record.get("proxy"), dict) else {}
+    host = record.get("host") or record.get("hostname") or record.get("projectId") or source_name
+    user = record.get("user") or record.get("service") or record.get("client_id") or ""
+    process = record.get("process") or record.get("event_type") or record.get("source") or record.get("type") or "request"
+    
+    # Extract method and path if present
+    method = proxy_meta.get("method") or record.get("method") or ""
+    path = proxy_meta.get("path") or record.get("path") or record.get("url") or ""
+    status_code = proxy_meta.get("statusCode") or record.get("statusCode") or ""
+    
+    commandline = (
+        record.get("commandline")
+        or record.get("message")
+        or (f"{method} {path} HTTP/{status_code}".strip() if method or path else "")
+        or record.get("text")
+        or ""
+    )
+    ip = (
+        record.get("ip")
+        or record.get("source_ip")
+        or record.get("client_ip")
+        or proxy_meta.get("clientIp")
+        or record.get("clientIp")
+        or ""
+    )
+    domain = record.get("domain") or record.get("request_host") or record.get("host") or ""
     file_hash = record.get("file_hash") or record.get("hash") or ""
     raw_payload = json.dumps(record, ensure_ascii=True)
-    event_type = str(record.get("event_type") or record.get("source_type") or source_type or "")
+    event_type = str(
+        record.get("event_type")
+        or (f"HTTP_{status_code}" if status_code else "")
+        or record.get("source_type")
+        or source_type
+        or ""
+    )
     destination_ip = str(record.get("destination_ip") or record.get("dest_ip") or "")
     destination_port = str(record.get("destination_port") or record.get("dest_port") or "")
-    url = str(record.get("url") or "")
+    url = str(path or record.get("url") or "")
     parent_process = str(record.get("parent_process") or record.get("parent") or "")
     pid = str(record.get("pid") or "")
     ppid = str(record.get("ppid") or "")

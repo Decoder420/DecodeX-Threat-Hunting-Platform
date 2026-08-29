@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import api, { syncFeeds } from "../api";
+import webApi from "../webApi";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import { hasPermission } from "../auth";
@@ -13,6 +15,13 @@ export default function IntelligencePage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [syncing, setSyncing] = useState(false);
   const [assetSearch, setAssetSearch] = useState("");
+  const [formMode, setFormMode] = useState("ioc"); // "ioc" | "target"
+  const [targetForm, setTargetForm] = useState({
+    name: "",
+    url: "https://",
+    environment: "production",
+  });
+  const [targetSuccess, setTargetSuccess] = useState("");
 
   const canWrite = hasPermission("ioc.write");
 
@@ -33,6 +42,19 @@ export default function IntelligencePage() {
   useEffect(() => {
     load().catch(() => {});
   }, []);
+
+  const handleCreateTarget = async (e) => {
+    e.preventDefault();
+    if (!targetForm.name.trim()) return;
+    try {
+      await webApi.createTarget(targetForm);
+      setTargetSuccess(`✓ Target "${targetForm.name}" registered for monitoring!`);
+      setTargetForm({ name: "", url: "https://", environment: "production" });
+      setTimeout(() => setTargetSuccess(""), 4000);
+    } catch (err) {
+      window.alert(err.response?.data?.error?.message || "Failed to register target.");
+    }
+  };
 
   const addIoc = async (e) => {
     e.preventDefault();
@@ -118,35 +140,142 @@ export default function IntelligencePage() {
         </div>
       </div>
 
-      {/* ADD IOC CARD */}
-      {canWrite ? (
-        <form className="surface" style={{ padding: 16, marginBottom: 16 }} onSubmit={addIoc}>
-          <h2 style={{ margin: "0 0 10px" }}>Register Indicator of Compromise (IOC)</h2>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <select
-              className="field__select"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              style={{ width: "auto" }}
-            >
-              <option value="ip">IPv4 Address</option>
-              <option value="domain">Domain / FQDN</option>
-              <option value="hash">SHA256 / MD5 Hash</option>
-              <option value="url">URL</option>
-            </select>
-            <input
-              className="field__input"
-              style={{ flex: 1, minWidth: 260 }}
-              placeholder="e.g. 185.220.101.5 or evil-domain.com or hash..."
-              value={indicator}
-              onChange={(e) => setIndicator(e.target.value)}
-              required
-            />
-            <Button type="submit" variant="primary">
-              + Add to Watchlist
-            </Button>
+      {/* INTEGRATIONS & DIRECT CONNECTIVITY BANNER */}
+      <div
+        className="surface"
+        style={{
+          padding: "16px 20px",
+          borderRadius: 8,
+          marginBottom: 16,
+          marginTop: 12,
+          background: "linear-gradient(135deg, rgba(14, 42, 66, 0.6) 0%, rgba(9, 24, 38, 0.9) 100%)",
+          border: "1px solid rgba(86, 198, 255, 0.25)",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: "1.4rem" }}>⚡</span>
+          <div>
+            <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem" }}>
+              Direct Telemetry Connectors: Vercel, Cloudflare, AWS &amp; Syslog
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+              Stream runtime edge logs, WAF alerts, and adversary activity straight into DecodeX.
+            </div>
           </div>
-        </form>
+        </div>
+        <Link to="/settings" style={{ textDecoration: "none" }}>
+          <Button size="sm" variant="ghost" style={{ borderColor: "#56c6ff", color: "#56c6ff" }}>
+            Configure Connectors →
+          </Button>
+        </Link>
+      </div>
+
+      {/* ADD IOC OR TARGET CARD */}
+      {canWrite ? (
+        <div className="surface" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 12, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, marginBottom: 14 }}>
+            <button
+              onClick={() => setFormMode("ioc")}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: formMode === "ioc" ? "#56c6ff" : "var(--color-text-muted)",
+                fontWeight: 700,
+                fontSize: "0.92rem",
+                cursor: "pointer",
+                borderBottom: formMode === "ioc" ? "2px solid #56c6ff" : "2px solid transparent",
+                paddingBottom: 4,
+              }}
+            >
+              + Register Threat Indicator (IOC)
+            </button>
+            <button
+              onClick={() => setFormMode("target")}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: formMode === "target" ? "#56c6ff" : "var(--color-text-muted)",
+                fontWeight: 700,
+                fontSize: "0.92rem",
+                cursor: "pointer",
+                borderBottom: formMode === "target" ? "2px solid #56c6ff" : "2px solid transparent",
+                paddingBottom: 4,
+              }}
+            >
+              + Quick-Register Monitored Target Asset
+            </button>
+          </div>
+
+          {targetSuccess && (
+            <div style={{ fontSize: "0.85rem", color: "#81c784", marginBottom: 12 }}>
+              {targetSuccess}
+            </div>
+          )}
+
+          {formMode === "ioc" ? (
+            <form onSubmit={addIoc} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select
+                className="field__select"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                style={{ width: "auto" }}
+              >
+                <option value="ip">IPv4 Address</option>
+                <option value="domain">Domain / FQDN</option>
+                <option value="hash">SHA256 / MD5 Hash</option>
+                <option value="url">URL</option>
+              </select>
+              <input
+                className="field__input"
+                style={{ flex: 1, minWidth: 260 }}
+                placeholder="e.g. 185.220.101.5 or evil-domain.com or hash..."
+                value={indicator}
+                onChange={(e) => setIndicator(e.target.value)}
+                required
+              />
+              <Button type="submit" variant="primary">
+                + Add to Watchlist
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleCreateTarget} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                className="field__input"
+                placeholder="Target Name (e.g. Vercel WebApp, Prod API)..."
+                value={targetForm.name}
+                onChange={(e) => setTargetForm({ ...targetForm, name: e.target.value })}
+                style={{ flex: 1, minWidth: 200 }}
+                required
+              />
+              <input
+                className="field__input"
+                placeholder="https://app.example.com"
+                value={targetForm.url}
+                onChange={(e) => setTargetForm({ ...targetForm, url: e.target.value })}
+                style={{ flex: 1, minWidth: 220 }}
+                required
+              />
+              <select
+                className="field__select"
+                value={targetForm.environment}
+                onChange={(e) => setTargetForm({ ...targetForm, environment: e.target.value })}
+                style={{ width: "auto" }}
+              >
+                <option value="production">Production</option>
+                <option value="staging">Staging</option>
+                <option value="lab">Lab</option>
+              </select>
+              <Button type="submit" variant="primary">
+                + Register Target
+              </Button>
+            </form>
+          )}
+        </div>
       ) : null}
 
       <div className="page-grid-2" style={{ alignItems: "start" }}>

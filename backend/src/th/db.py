@@ -924,6 +924,51 @@ def revoke_ingest_key(db, key_id: int) -> bool:
     return True
 
 
+class OrgSettings(Base):
+    __tablename__ = "org_settings"
+
+    id = Column(Integer, primary_key=True)
+    org_id = Column(String(64), unique=True, default="default", index=True)
+    company_name = Column(String(255), default="DecodeX Security Technologies Private Limited")
+    tagline = Column(String(255), default="Enterprise Threat Hunting & Modern Cloud SIEM")
+    timezone = Column(String(64), default="UTC")
+    contact_email = Column(String(255), default="soc@decodex.internal")
+    slack_webhook_url = Column(Text, default="")
+    discord_webhook_url = Column(Text, default="")
+    teams_webhook_url = Column(Text, default="")
+    ai_provider = Column(String(64), default="builtin")  # "builtin", "gemini", "openai"
+    ai_api_key = Column(String(255), default="")
+    retention_days = Column(Integer, default=90)
+    compliance_mode = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+def get_org_settings(db, org_id: str = "default") -> OrgSettings:
+    settings = db.query(OrgSettings).filter_by(org_id=org_id).first()
+    if not settings:
+        settings = OrgSettings(org_id=org_id)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    return settings
+
+
+def update_org_settings(db, data: dict, org_id: str = "default") -> OrgSettings:
+    settings = get_org_settings(db, org_id)
+    allowed_fields = [
+        "company_name", "tagline", "timezone", "contact_email",
+        "slack_webhook_url", "discord_webhook_url", "teams_webhook_url",
+        "ai_provider", "ai_api_key", "retention_days", "compliance_mode"
+    ]
+    for field in allowed_fields:
+        if field in data:
+            setattr(settings, field, data[field])
+    settings.updated_at = utcnow()
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
 def _initialize_database() -> None:
     """Create tables, migrate legacy columns, and seed defaults once per process."""
     global _db_initialized

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from flask import g, jsonify, request
@@ -20,13 +21,16 @@ from .db import (
     Event,
     IOC,
     IngestionState,
+    OrgSettings,
     WebFinding,
     WebScan,
     WebScanEvent,
     WebScanNode,
     WebTarget,
     get_db,
+    get_org_settings,
     get_user_for_token,
+    update_org_settings,
     user_has_permission,
     utcnow,
 )
@@ -1578,3 +1582,226 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 } for s in sources
             ],
         })
+
+    # -------- Target Cockpit (Dedicated Target Detail View) --------
+    @app.route("/api/webscan/targets/<int:target_id>/cockpit")
+    @login_required
+    @require_permission("webscan.read")
+    def get_target_cockpit(target_id):
+        db = get_db()
+        target = db.get(WebTarget, target_id)
+        if not target:
+            return jsonify({"error": "Target not found"}), 404
+
+        scans = db.query(WebScan).filter_by(target_id=target_id).order_by(WebScan.id.desc()).all()
+        scan_ids = [s.id for s in scans]
+
+        findings_query = db.query(WebFinding)
+        if scan_ids:
+            findings_query = findings_query.filter(or_(WebFinding.target_id == target_id, WebFinding.scan_id.in_(scan_ids)))
+        else:
+            findings_query = findings_query.filter_by(target_id=target_id)
+        findings = findings_query.order_by(WebFinding.risk_score.desc(), WebFinding.id.asc()).all()
+
+        discovered_nodes = []
+        if scan_ids:
+            discovered_nodes = (
+                db.query(WebScanNode)
+                .filter(WebScanNode.scan_id.in_(scan_ids))
+                .order_by(WebScanNode.id.desc())
+                .limit(200)
+                .all()
+            )
+
+        target_hostname = ""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(target.url)
+            target_hostname = parsed.hostname or ""
+        except Exception:
+            target_hostname = ""
+
+        alert_filter = [Alert.host.ilike(f"%{target.name}%")]
+        if target_hostname:
+            alert_filter.append(Alert.host.ilike(f"%{target_hostname}%"))
+        
+        correlated_alerts = (
+            db.query(Alert)
+            .filter(or_(*alert_filter))
+            .order_by(Alert.id.desc())
+            .limit(50)
+            .all()
+        )
+
+        return jsonify({
+            "target": {
+                "id": target.id,
+                "name": target.name,
+                "url": target.url,
+                "scope": getattr(target, "scope", ""),
+                "environment": getattr(target, "environment", "lab"),
+                "authorization_status": target.authorization_status,
+                "authorized_by": target.authorized_by,
+                "authorized_at": target.authorized_at.isoformat() if target.authorized_at else None,
+                "risk_score": getattr(target, "risk_score", 0),
+                "created_at": target.created_at.isoformat() if target.created_at else None,
+            },
+            "findings_count": len(findings),
+            "findings": [
+                {
+                    "id": f.id,
+                    "scan_id": f.scan_id,
+                    "title": f.title,
+                    "severity": f.severity,
+                    "risk_score": getattr(f, "risk_score", 0),
+                    "cve_id": getattr(f, "cve_id", None),
+                    "cwe_id": getattr(f, "cwe_id", None),
+                    "url": f.url,
+                    "param": f.param,
+                    "method": f.method,
+                    "status": getattr(f, "status", "OPEN"),
+                    "solution": getattr(f, "solution", ""),
+                    "evidence": getattr(f, "evidence", "")[:300] if getattr(f, "evidence", None) else "",
+                } for f in findings
+            ],
+            "scans": [
+                {
+                    "id": s.id,
+                    "scan_profile": s.scan_profile,
+                    "status": s.status,
+                    "progress": getattr(s, "progress", 100),
+                    "started_at": s.started_at.isoformat() if s.started_at else None,
+                    "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                    "findings_count": (getattr(s, "critical_count", 0) or 0) + (getattr(s, "high_count", 0) or 0) + (getattr(s, "medium_count", 0) or 0) + (getattr(s, "low_count", 0) or 0),
+                } for s in scans
+            ],
+            "attack_surface": [
+                {
+                    "id": n.id,
+                    "url": n.url,
+                    "method": getattr(n, "method", "GET"),
+                    "status_code": getattr(n, "status_code", 200),
+                    "discovered_at": n.discovered_at.isoformat() if n.discovered_at else None,
+                } for n in discovered_nodes
+            ],
+            "correlated_alerts": [
+                {
+                    "id": a.id,
+                    "description": a.description,
+                    "severity": a.severity,
+                    "tactic": a.tactic,
+                    "technique_id": a.technique_id,
+                    "host": a.host,
+                    "risk_score": getattr(a, "risk_score", 0),
+                    "timestamp": a.event_timestamp.isoformat() if a.event_timestamp else None,
+                } for a in correlated_alerts
+            ]
+        })
+
+    # -------- AI Copilot Endpoints --------
+    @app.route("/api/ai/alert-triage/<int:alert_id>", methods=["POST"])
+    @login_required
+    @require_permission("alerts.read")
+    def ai_alert_triage(alert_id):
+        from .ai_engine import triage_alert
+        db = get_db()
+        alert = db.get(Alert, alert_id)
+        if not alert:
+            return jsonify({"error": "Alert not found"}), 404
+        settings = get_org_settings(db)
+        alert_dict = {
+            "id": alert.id,
+            "description": alert.description,
+            "severity": alert.severity,
+            "tactic": alert.tactic,
+            "technique_id": alert.technique_id,
+            "host": alert.host,
+            "user": getattr(alert, "user", "") or "",
+            "ip": getattr(alert, "ip", "") or "",
+            "commandline": getattr(alert, "commandline", "") or "",
+            "process": getattr(alert, "process", "") or "",
+            "risk_score": getattr(alert, "risk_score", 0),
+            "event_timestamp": alert.event_timestamp.isoformat() if alert.event_timestamp else "",
+        }
+        analysis = triage_alert(alert_dict, org_name=settings.company_name)
+        return jsonify(analysis)
+
+    @app.route("/api/ai/finding-triage/<int:finding_id>", methods=["POST"])
+    @login_required
+    @require_permission("webscan.read")
+    def ai_finding_triage(finding_id):
+        from .ai_engine import triage_web_finding
+        db = get_db()
+        finding = db.get(WebFinding, finding_id)
+        if not finding:
+            return jsonify({"error": "Finding not found"}), 404
+        target = db.get(WebTarget, finding.target_id) if getattr(finding, "target_id", None) else None
+        target_dict = {"name": target.name, "url": target.url} if target else {}
+        finding_dict = {
+            "id": finding.id,
+            "title": finding.title,
+            "severity": finding.severity,
+            "cve_id": getattr(finding, "cve_id", "N/A"),
+            "cwe_id": getattr(finding, "cwe_id", "CWE-General"),
+            "url": finding.url,
+            "method": getattr(finding, "method", "GET"),
+            "param": getattr(finding, "param", "param"),
+            "evidence": getattr(finding, "evidence", ""),
+            "solution": getattr(finding, "solution", ""),
+        }
+        analysis = triage_web_finding(finding_dict, target_dict)
+        return jsonify(analysis)
+
+    # -------- Organization Settings Endpoints --------
+    @app.route("/api/settings", methods=["GET", "PUT"])
+    @login_required
+    def organization_settings():
+        db = get_db()
+        if request.method == "GET":
+            s = get_org_settings(db)
+            return jsonify({
+                "company_name": s.company_name,
+                "tagline": s.tagline,
+                "timezone": s.timezone,
+                "contact_email": s.contact_email,
+                "slack_webhook_url": s.slack_webhook_url,
+                "discord_webhook_url": s.discord_webhook_url,
+                "teams_webhook_url": s.teams_webhook_url,
+                "ai_provider": s.ai_provider,
+                "ai_api_key_configured": bool(s.ai_api_key),
+                "retention_days": s.retention_days,
+                "compliance_mode": s.compliance_mode,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            })
+        else:
+            if not user_has_permission(g.current_user, "system.write") and g.current_user.role != "admin":
+                return jsonify({"error": "Admin permission required to update settings"}), 403
+            data = request.get_json(silent=True) or {}
+            s = update_org_settings(db, data)
+            write_audit(db, action="settings.update", user=g.current_user, resource_type="settings", details=f"Updated company_name={s.company_name}")
+            return jsonify({"status": "updated", "company_name": s.company_name})
+
+    @app.route("/api/settings/notifications/test", methods=["POST"])
+    @login_required
+    def test_notification_webhook():
+        data = request.get_json(silent=True) or {}
+        webhook_url = data.get("url", "").strip()
+        channel = data.get("channel", "slack").lower()
+        if not webhook_url:
+            return jsonify({"error": "webhook_url is required"}), 400
+        
+        try:
+            import urllib.request
+            msg = {
+                "text": "🚨 *DecodeX Security Notification Test*\nConnection verified successfully! Live SIEM alerts will dispatch to this channel."
+            }
+            req = urllib.request.Request(
+                webhook_url,
+                data=json.dumps(msg).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "DecodeX-SOC/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                status_code = response.getcode()
+                return jsonify({"status": "success", "http_status": status_code, "message": "Test notification dispatched!"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Webhook dispatch failed: {str(e)}"}), 502

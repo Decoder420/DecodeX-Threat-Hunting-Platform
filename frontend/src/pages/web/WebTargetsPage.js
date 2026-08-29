@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import webApi from "../../webApi";
 import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
@@ -242,7 +242,12 @@ export default function WebTargetsPage() {
                 {filteredTargets.map((t) => (
                   <tr key={t.id}>
                     <td>
-                      <strong style={{ fontSize: "0.95rem" }}>{t.name}</strong>
+                      <Link
+                        to={`/webscan/targets/${t.id}`}
+                        style={{ color: "#fff", textDecoration: "none" }}
+                      >
+                        <strong style={{ fontSize: "0.95rem", color: "#56c6ff" }}>{t.name}</strong>
+                      </Link>
                       <div className="muted" style={{ fontSize: "0.75rem" }}>
                         Owner: {t.owner || "Security Operations"}
                       </div>
@@ -279,14 +284,22 @@ export default function WebTargetsPage() {
                         {t.authorization_status}
                       </Badge>
                     </td>
-                    <td className="websec__actions-cell">
+                    <td className="websec__actions-cell" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => navigate(`/webscan/targets/${t.id}`)}
+                      >
+                        🔍 Cockpit
+                      </Button>
+
                       {t.authorization_status === "authorized" && canRun ? (
                         <Button
                           size="sm"
                           variant="primary"
                           onClick={() => navigate(`/webscan/scans?target=${t.id}`)}
                         >
-                          ⚡ Scan Now
+                          ⚡ Scan
                         </Button>
                       ) : null}
 

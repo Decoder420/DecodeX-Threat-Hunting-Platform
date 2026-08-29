@@ -9,12 +9,14 @@ import IntelligencePage from "./pages/IntelligencePage";
 import WebSecurityLayout from "./pages/web/WebSecurityLayout";
 import WebOverviewPage from "./pages/web/WebOverviewPage";
 import WebTargetsPage from "./pages/web/WebTargetsPage";
+import WebTargetDetailPage from "./pages/web/WebTargetDetailPage";
 import WebScansPage from "./pages/web/WebScansPage";
 import WebFindingsPage from "./pages/web/WebFindingsPage";
 import WebAttackSurfacePage from "./pages/web/WebAttackSurfacePage";
 import WebsiteMapPage from "./pages/web/WebsiteMapPage";
 import WebScannerHealthPage from "./pages/web/WebScannerHealthPage";
 import ReportsPage from "./pages/ReportsPage";
+import SettingsPage from "./pages/SettingsPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminAuditPage from "./pages/AdminAuditPage";
 import AppLayout from "./components/AppLayout";
@@ -233,6 +235,7 @@ export default function App() {
                   <Route path="/webscan" element={<ProtectedRoute permission="webscan.read"><WebSecurityLayout /></ProtectedRoute>}>
                     <Route index element={<WebOverviewPage />} />
                     <Route path="targets" element={<WebTargetsPage />} />
+                    <Route path="targets/:targetId" element={<WebTargetDetailPage />} />
                     <Route path="scans" element={<WebScansPage />} />
                     <Route path="findings" element={<WebFindingsPage />} />
                     <Route path="attack-surface" element={<WebAttackSurfacePage />} />
@@ -241,6 +244,7 @@ export default function App() {
                     <Route path="health" element={<WebScannerHealthPage />} />
                   </Route>
                   <Route path="/reports" element={<ProtectedRoute permission="reports.read"><ReportsPage /></ProtectedRoute>} />
+                  <Route path="/settings" element={<ProtectedRoute permission="dashboard.read"><SettingsPage /></ProtectedRoute>} />
                   <Route path="/admin/users" element={<ProtectedRoute permission="users.read"><AdminUsersPage /></ProtectedRoute>} />
                   <Route path="/admin/audit" element={<ProtectedRoute permission="audit.read"><AdminAuditPage /></ProtectedRoute>} />
                   <Route path="/admin/console" element={<ProtectedRoute permission="users.read"><Dashboard embedded initialView="admin" onLogout={handleLogout} currentUser={sessionUser} /></ProtectedRoute>} />
