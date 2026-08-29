@@ -1586,18 +1586,22 @@ textarea {
   --ok: #00ff66;
 }
 
+/* ==========================================================================
+   DAYLIGHT ENTERPRISE (LIGHT THEME) - COMPREHENSIVE HIGH-CONTRAST SYSTEM
+   ========================================================================== */
 [data-theme="light-terminal"] {
-  --bg-0: #f4f6f8;
+  --bg-0: #f1f5f9;
   --bg-1: #ffffff;
-  --bg-2: #e9ecef;
-  --bg-3: #dee2e6;
-  --line: rgba(0, 0, 0, 0.12);
-  --line-strong: rgba(0, 0, 0, 0.25);
-  --text: #111827;
-  --text-muted: #4b5563;
-  --text-dim: #6b7280;
+  --bg-2: #e2e8f0;
+  --bg-3: #cbd5e1;
+  --line: #cbd5e1;
+  --line-strong: #94a3b8;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #64748b;
+  --color-text-muted: #475569;
   --accent: #0284c7;
-  --accent-2: #f59e0b;
+  --accent-2: #2563eb;
   --accent-soft: rgba(2, 132, 199, 0.12);
   --danger: #dc2626;
   --warn: #d97706;
@@ -1606,22 +1610,187 @@ textarea {
 }
 
 [data-theme="light-terminal"] body {
-  background: #f4f6f8 !important;
-  color: #111827 !important;
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Headings and titles */
+[data-theme="light-terminal"] h1,
+[data-theme="light-terminal"] h2,
+[data-theme="light-terminal"] h3,
+[data-theme="light-terminal"] h4,
+[data-theme="light-terminal"] h5,
+[data-theme="light-terminal"] h6 {
+  color: #0f172a !important;
+}
+
+/* Base text elements */
+[data-theme="light-terminal"] p,
+[data-theme="light-terminal"] label,
+[data-theme="light-terminal"] strong {
+  color: #1e293b !important;
+}
+
+[data-theme="light-terminal"] .muted,
+[data-theme="light-terminal"] .page-shell__copy,
+[data-theme="light-terminal"] .text-muted,
+[data-theme="light-terminal"] [style*="color: var(--color-text-muted)"],
+[data-theme="light-terminal"] [style*="color: var(--text-muted)"] {
+  color: #475569 !important;
+}
+
+/* Force override inline white text on dark-turned-light containers */
+[data-theme="light-terminal"] span[style*="color: #fff"],
+[data-theme="light-terminal"] span[style*="color: white"],
+[data-theme="light-terminal"] div[style*="color: #fff"],
+[data-theme="light-terminal"] div[style*="color: white"],
+[data-theme="light-terminal"] p[style*="color: #fff"],
+[data-theme="light-terminal"] h1[style*="color: #fff"],
+[data-theme="light-terminal"] h2[style*="color: #fff"],
+[data-theme="light-terminal"] h3[style*="color: #fff"],
+[data-theme="light-terminal"] h4[style*="color: #fff"],
+[data-theme="light-terminal"] strong[style*="color: #fff"],
+[data-theme="light-terminal"] label[style*="color: #fff"] {
+  color: #0f172a !important;
+}
+
+/* Surfaces, Cards, and Containers */
+[data-theme="light-terminal"] .surface,
+[data-theme="light-terminal"] .card,
+[data-theme="light-terminal"] .soc-page,
+[data-theme="light-terminal"] .page-shell {
+  color: #0f172a;
 }
 
 [data-theme="light-terminal"] .surface,
 [data-theme="light-terminal"] .card {
   background: #ffffff !important;
-  color: #111827 !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
 }
 
+/* Sidebar navigation */
 [data-theme="light-terminal"] .soc-sidebar {
   background: #ffffff !important;
-  border-right-color: rgba(0, 0, 0, 0.1) !important;
+  border-right-color: #cbd5e1 !important;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03) !important;
 }
+
+[data-theme="light-terminal"] .soc-nav-item {
+  color: #334155 !important;
+}
+
+[data-theme="light-terminal"] .soc-nav-item:hover {
+  background: #f1f5f9 !important;
+  color: #0284c7 !important;
+}
+
+[data-theme="light-terminal"] .soc-nav-item.active {
+  background: #e0f2fe !important;
+  color: #0284c7 !important;
+  font-weight: 700 !important;
+}
+
+/* Sub-side panel in Settings */
+[data-theme="light-terminal"] aside {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light-terminal"] aside button {
+  color: #334155 !important;
+}
+
+[data-theme="light-terminal"] aside button:hover {
+  background: #f1f5f9 !important;
+}
+
+/* Inputs, Textareas, and Dropdowns */
+[data-theme="light-terminal"] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="light-terminal"] select,
+[data-theme="light-terminal"] textarea,
+[data-theme="light-terminal"] .input,
+[data-theme="light-terminal"] .field__input {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light-terminal"] input::placeholder,
+[data-theme="light-terminal"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+[data-theme="light-terminal"] input:focus,
+[data-theme="light-terminal"] select:focus,
+[data-theme="light-terminal"] textarea:focus {
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
+}
+
+/* Tables & Telemetry grids */
+[data-theme="light-terminal"] table,
+[data-theme="light-terminal"] .data-table {
+  background: #ffffff !important;
+}
+
+[data-theme="light-terminal"] table th,
+[data-theme="light-terminal"] .data-table th {
+  background: #f8fafc !important;
+  color: #1e293b !important;
+  font-weight: 700 !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+}
+
+[data-theme="light-terminal"] table td,
+[data-theme="light-terminal"] .data-table td {
+  color: #0f172a !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+[data-theme="light-terminal"] table tr:hover,
+[data-theme="light-terminal"] .data-table tr:hover {
+  background: #f1f5f9 !important;
+}
+
+/* Code and command blocks */
+[data-theme="light-terminal"] code {
+  background: #f1f5f9 !important;
+  color: #0284c7 !important;
+  border: 1px solid #e2e8f0 !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light-terminal"] pre {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+/* Buttons */
+[data-theme="light-terminal"] .btn {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light-terminal"] .btn:hover {
+  background: #e2e8f0;
+}
+
+[data-theme="light-terminal"] .btn--primary,
+[data-theme="light-terminal"] button.btn--primary {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="light-terminal"] .btn--primary:hover {
+  background: #0369a1 !important;
+}
+
 
 /* Compact display mode */
 .soc--compact .table th,

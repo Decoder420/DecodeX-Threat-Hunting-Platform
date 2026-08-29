@@ -5,6 +5,7 @@ import webApi from "../../webApi";
 import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
 import AiTriageDrawer from "../../components/AiTriageDrawer";
+import AttackBlastRadiusGraph from "../../components/AttackBlastRadiusGraph";
 import { hasPermission } from "../../auth";
 
 export default function WebTargetDetailPage() {
@@ -285,6 +286,21 @@ export default function WebTargetDetailPage() {
         >
           Scan History ({scans.length})
         </button>
+        <button
+          onClick={() => setActiveTab("graph")}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: activeTab === "graph" ? "#56c6ff" : "transparent",
+            color: activeTab === "graph" ? "#041019" : "var(--color-text-muted)",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontSize: "0.88rem",
+          }}
+        >
+          🕸️ Blast Radius Graph
+        </button>
       </div>
 
       {/* TAB 1: FINDINGS FOR THIS TARGET */}
@@ -540,6 +556,15 @@ export default function WebTargetDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* TAB 5: ATTACK BLAST RADIUS GRAPH */}
+      {activeTab === "graph" && (
+        <AttackBlastRadiusGraph
+          target={target}
+          findings={findings}
+          alerts={correlated_alerts}
+        />
       )}
 
       {/* AI Copilot Drawer */}
