@@ -96,6 +96,15 @@ export const addSuppression = (indicator) =>
 
 export const syncFeeds = () => api.post("/admin/feeds/sync");
 
+export const uploadLogFile = (file) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post("/ingest/upload", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+
 export const executeSoarAction = (action, target) =>
   api.post("/soar/action", {
     action,
