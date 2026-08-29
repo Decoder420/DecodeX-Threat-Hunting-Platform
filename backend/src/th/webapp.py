@@ -9,7 +9,9 @@ from functools import wraps
 from flask import Flask, jsonify, request, send_file, g
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
+import json
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 from sqlalchemy import func
 
 # Database and Scanner imports
@@ -872,6 +874,69 @@ def ingest_manual():
 
     result = _run_ingest_pipeline(payload, source_name=f"manual:{g.current_user.username}", source_type="manual")
     return jsonify(result)
+
+@app.route("/api/ingest/upload", methods=["POST"])
+@login_required
+@require_permission("events.write")
+def ingest_upload_file():
+    uploaded_file = request.files.get("file") or request.files.get("log_file")
+    if not uploaded_file or not uploaded_file.filename:
+        return jsonify({"error": "No file uploaded. Please select a JSON or log file."}), 400
+
+    filename = secure_filename(uploaded_file.filename) or "uploaded_logs.json"
+
+    try:
+        raw_bytes = uploaded_file.read()
+        raw_text = raw_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        return jsonify({"error": f"Failed to read file: {str(e)}"}), 400
+
+    payload = None
+    # 1. Try parsing full content as standard JSON (list of objects or single object)
+    try:
+        payload = json.loads(raw_text)
+    except Exception:
+        pass
+
+    # 2. Try parsing as line-delimited JSON (NDJSON / JSONL) or fallback to text lines
+    if payload is None:
+        parsed_lines = []
+        for line in raw_text.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            try:
+                parsed_lines.append(json.loads(line_str))
+            except Exception:
+                parsed_lines.append({
+                    "message": line_str,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
+        payload = parsed_lines
+
+    if not payload:
+        return jsonify({"error": "The uploaded file contains no valid log entries."}), 400
+
+    db = get_db()
+    source_name = f"upload:{filename}"
+    result = _run_ingest_pipeline(payload, source_name=source_name, source_type="file_upload")
+    result["filename"] = filename
+
+    try:
+        write_audit(
+            db,
+            action="logs.upload",
+            user=g.current_user,
+            resource_type="logs",
+            resource_id=filename,
+            details=f"Uploaded {filename}: {result['events_added']} events added, {result['alerts_generated']} alerts generated",
+            success=True,
+        )
+    except Exception:
+        pass
+
+    return jsonify(result)
+
 
 # --- DEBUG SIMULATOR ---
 @app.route("/api/debug/trigger_alert")
