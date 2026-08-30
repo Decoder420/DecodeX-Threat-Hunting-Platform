@@ -7,6 +7,7 @@ import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
 import { getStoredToken } from "../../auth";
 import WebsiteMap, { upsertTreeNode } from "./WebsiteMap";
+import { renderScanStatusBadge } from "./WebScansPage";
 
 export default function WebsiteMapPage() {
   const { targetId } = useParams();
@@ -239,7 +240,7 @@ export default function WebsiteMapPage() {
             {scan?.status ? (
               <>
                 {" "}
-                <Badge>{scan.status}</Badge> {scan.progress ?? 0}% ·{" "}
+                {renderScanStatusBadge(scan)} {scan.progress ?? 0}% ·{" "}
                 {scan.current_stage || scan.stage}
               </>
             ) : null}

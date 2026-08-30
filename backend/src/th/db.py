@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,12 +34,39 @@ engine = create_engine(
     future=True,
 )
 
+def _detect_sqlite_journal_mode() -> str:
+    """
+    Select optimal SQLite journal mode:
+    - Explicit override via SQLITE_JOURNAL_MODE always takes precedence.
+    - On macOS or Docker Desktop for Mac (VirtioFS / osxfs host mounts), POSIX advisory
+      locks and shared memory (-shm) across the hypervisor boundary can suffer from lock
+      starvation or file header corruption. We default to 'DELETE' in those environments.
+    - On native Linux, production servers, and CI environments, default to 'WAL' for
+      high-concurrency read/write performance.
+    """
+    explicit = os.environ.get("SQLITE_JOURNAL_MODE")
+    if explicit:
+        return explicit.upper()
+
+    is_macos = sys.platform == "darwin"
+    is_docker_mac = (
+        os.path.exists("/run/host-services")
+        or os.path.exists("/host_mnt")
+        or os.environ.get("DOCKER_DESKTOP_MAC") == "true"
+    )
+
+    if is_macos or is_docker_mac:
+        return "DELETE"
+
+    return "WAL"
+
 # Only apply SQLite PRAGMAs if we are actually using SQLite
 if DB_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def _configure_sqlite(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
+        journal_mode = _detect_sqlite_journal_mode()
+        cursor.execute(f"PRAGMA journal_mode={journal_mode}")
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
@@ -55,6 +83,52 @@ _db_initialized = False
 def utcnow() -> datetime:
     # Naive UTC — SQLite + SQLAlchemy comparisons stay consistent.
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class VaultConfigurationError(RuntimeError):
+    """Raised when credential vault operations are attempted without ENCRYPTION_KEY or SECRET_KEY set."""
+    pass
+
+
+def get_encryption_key() -> bytes:
+    """Derive 32-byte urlsafe base64 Fernet key from ENCRYPTION_KEY or SECRET_KEY.
+    
+    Fails closed: raises VaultConfigurationError if neither key is configured.
+    """
+    import hashlib, base64
+    raw = os.environ.get("ENCRYPTION_KEY") or os.environ.get("SECRET_KEY")
+    if not raw or not raw.strip():
+        raise VaultConfigurationError(
+            "Credential vault unconfigured: neither ENCRYPTION_KEY nor SECRET_KEY environment variable is set. "
+            "Refusing to encrypt or decrypt credentials with an insecure fallback."
+        )
+    return base64.urlsafe_b64encode(hashlib.sha256(raw.strip().encode("utf-8")).digest())
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt credentials at rest using Fernet symmetric encryption (AES-128-CBC + HMAC-SHA256).
+    
+    Fails closed: raises VaultConfigurationError if no encryption key is configured.
+    """
+    if not plaintext:
+        return ""
+    from cryptography.fernet import Fernet
+    key = get_encryption_key()
+    f = Fernet(key)
+    return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt credentials from storage using Fernet symmetric encryption.
+    
+    Fails closed: raises VaultConfigurationError if no encryption key is configured.
+    """
+    if not ciphertext:
+        return ""
+    from cryptography.fernet import Fernet
+    key = get_encryption_key()
+    f = Fernet(key)
+    return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
 
 
 class Event(Base):
@@ -440,6 +514,8 @@ class WebTarget(Base):
     last_scan = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=False, default="")
     environment = Column(String, nullable=False, default="lab")
+    auth_type = Column(String, nullable=False, default="none")  # none, token, form, basic
+    auth_config_encrypted = Column(Text, nullable=False, default="")  # Fernet-encrypted JSON credentials
 
 
 class WebScan(Base):
@@ -663,6 +739,14 @@ def _ensure_legacy_sqlite_columns() -> None:
             _add_column_if_missing(
                 connection, "web_targets", "environment",
                 "ALTER TABLE web_targets ADD COLUMN environment VARCHAR NOT NULL DEFAULT 'lab'",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "auth_type",
+                "ALTER TABLE web_targets ADD COLUMN auth_type VARCHAR NOT NULL DEFAULT 'none'",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "auth_config_encrypted",
+                "ALTER TABLE web_targets ADD COLUMN auth_config_encrypted TEXT NOT NULL DEFAULT ''",
             )
 
         if inspect(engine).has_table("web_scans"):

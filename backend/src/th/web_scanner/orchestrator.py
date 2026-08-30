@@ -26,8 +26,7 @@ from .config import (
 )
 from .crawler import crawl
 from .deduplicator import dedupe_findings
-from .demo import demo_surface
-from .engines import detect_engines, run_nmap, run_nuclei, run_zap_passive
+from .engines import detect_engines, run_nmap, run_nuclei, run_zap_active, run_zap_passive
 from .http_discovery import check_common_files, check_tls, discover_http
 from .risk_web import score_web_finding
 from .sitemap import extract_sitemap_urls
@@ -68,6 +67,38 @@ def get_engine_status() -> dict:
     }
     status["profiles"] = list(SCAN_PROFILES.keys())
     return status
+
+
+from sqlalchemy import inspect
+
+def recover_stale_scans(db=None) -> int:
+    """Transition any orphan scans left in RUNNING or PENDING state on startup to INTERRUPTED."""
+    owns_db = db is None
+    if db is None:
+        db = SessionLocal()
+    count = 0
+    try:
+        bind = db.get_bind()
+        if bind is not None and not inspect(bind).has_table("web_scans"):
+            return 0
+        orphans = (
+            db.query(WebScan)
+            .filter(WebScan.status.in_(["RUNNING", "PENDING", "DISCOVERING", "CRAWLING", "SCANNING", "RESUMING"]))
+            .all()
+        )
+        for s in orphans:
+            s.status = "INTERRUPTED"
+            s.interrupted = True
+            s.current_stage = "INTERRUPTED"
+            s.error_message = "Scan interrupted by application restart. Ready to resume."
+            count += 1
+        if count:
+            db.commit()
+            logger.info("Recovered %s stale/interrupted web scans on startup.", count)
+        return count
+    finally:
+        if owns_db:
+            db.close()
 
 
 def cancel_scan(scan_id: int) -> bool:
@@ -169,11 +200,6 @@ def start_scan_async(
         )
     if profile == "LAB" and not WEBSCAN_LAB_MODE and not WEBSCAN_ALLOW_PRIVATE_TARGETS:
         raise PermissionError("LAB profile requires WEBSCAN_LAB_MODE=true (or private lab targets enabled).")
-    if profile == "DEMO" and not WEBSCAN_DEMO_MODE:
-        # Still allow DEMO explicitly requested when demo mode env is off? Require env for honesty.
-        if not WEBSCAN_DEMO_MODE:
-            # Allow DEMO profile always but findings are clearly labeled [DEMO]
-            pass
 
     db = SessionLocal()
     try:
@@ -211,6 +237,9 @@ def start_scan_async(
             completed_stages="[]",
             configuration_json=json.dumps({
                 "profile": profile,
+                "policy": SCAN_PROFILES.get(profile, {}).get("policy", "DEFAULT"),
+                "alert_threshold": SCAN_PROFILES.get(profile, {}).get("alert_threshold", "MEDIUM"),
+                "attack_strength": SCAN_PROFILES.get(profile, {}).get("attack_strength", "MEDIUM"),
                 "resolved_ips": url_meta["resolved_ips"],
                 "url": url_meta["url"],
                 "safety_mode": mode,
@@ -330,6 +359,34 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
         requests_used = int(getattr(scan, "requests_used", 0) or 0)
         budget = int(getattr(scan, "request_budget", 0) or WEBSCAN_REQUEST_BUDGET)
 
+        # Authenticated scanning: decrypt target credentials if configured
+        target_auth_type = getattr(target, "auth_type", "none") or "none"
+        target_auth_config = None
+        if target_auth_type != "none":
+            from ..db import decrypt_secret, VaultConfigurationError
+            enc = getattr(target, "auth_config_encrypted", "") or ""
+            if enc:
+                try:
+                    dec = decrypt_secret(enc)
+                    target_auth_config = json.loads(dec) if dec else None
+                except VaultConfigurationError as exc:
+                    logger.error("Authenticated scan aborted: %s", exc)
+                    log("SCAN", f"Vault configuration error: {exc}", severity="ERROR")
+                    _update(db, scan, stage="FAILED", progress=scan.progress, error_message=str(exc), finished_at=utcnow())
+                    return
+                except Exception as exc:
+                    logger.warning("Failed to decrypt credentials: %s", exc)
+                    target_auth_config = None
+
+        scan_cfg = {}
+        try:
+            scan_cfg = json.loads(scan.configuration_json or "{}")
+        except Exception:
+            scan_cfg = {}
+        scan_policy = scan_cfg.get("policy")
+        scan_alert_threshold = scan_cfg.get("alert_threshold")
+        scan_attack_strength = scan_cfg.get("attack_strength")
+
         def bump_requests(n: int = 1) -> bool:
             nonlocal requests_used
             requests_used += n
@@ -350,191 +407,212 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
         scan_url = url_meta["url"]
         hostname = url_meta["hostname"] or urlparse(scan_url).hostname or ""
 
-        # --- DEMO profile: synthetic surface only ---
-        if profile.get("demo"):
-            _update(db, scan, stage="DISCOVERING", progress=20)
-            demo = demo_surface(scan_url, hostname)
-            log("DISCOVERY", demo["warning"], severity="WARN")
-            root = surface.ensure_root(scan_url, hostname=hostname, ips=url_meta.get("resolved_ips"))
-            for p in demo.get("ports") or []:
-                surface.ensure_port(root, port=p["port"], protocol=p.get("protocol") or "tcp", service=p.get("service") or "")
-            for u in demo.get("urls") or []:
-                surface.ensure_url_path(root, u["url"], http_status=u.get("status"))
-            for a in demo.get("apis") or []:
-                surface.ensure_api(root, a["url"], method=a.get("method") or "GET")
-            tech = demo.get("technologies") or []
-            raw_findings.extend(demo.get("findings") or [])
-            urls_discovered = len(demo.get("urls") or [])
-            ports = demo.get("ports") or []
-            scan.technologies_json = json.dumps(tech)
-            scan.ports_json = json.dumps(ports)
-            # Skip live engines — fall through to ANALYZING
-            _update(db, scan, stage="ANALYZING", progress=80)
-        else:
-            _update(db, scan, stage="DISCOVERING", progress=15)
-            root = surface.ensure_root(scan_url, hostname=hostname, ips=url_meta.get("resolved_ips"))
-            surface.ensure_url_path(root, scan_url)
+        _update(db, scan, stage="DISCOVERING", progress=15)
+        root = surface.ensure_root(scan_url, hostname=hostname, ips=url_meta.get("resolved_ips"))
+        surface.ensure_url_path(root, scan_url)
 
-            if profile.get("tls"):
-                _update(db, scan, stage="TLS_ANALYSIS", progress=18)
-                if bump_requests():
-                    tls_findings, _tls = check_tls(scan_url, allow_private=allow_private)
-                    raw_findings.extend(tls_findings)
-
+        if profile.get("tls"):
+            _update(db, scan, stage="TLS_ANALYSIS", progress=18)
             if bump_requests():
-                http_findings, discovery = discover_http(scan_url, allow_private=allow_private)
-                raw_findings.extend(http_findings)
-                if profile.get("technology"):
-                    tech = fingerprint(discovery.get("headers") or {}, discovery.get("body_sample") or "")
-                    scan.technologies_count = len(tech)
-                    if tech:
-                        root.technology = ", ".join(
-                            (t.get("technology") or t.get("name") or "") for t in tech[:5]
-                        )
-                        db.commit()
-            if profile.get("passive") and bump_requests(3):
-                raw_findings.extend(check_common_files(scan_url, allow_private=allow_private))
+                tls_findings, _tls = check_tls(scan_url, allow_private=allow_private)
+                raw_findings.extend(tls_findings)
 
-            # Sitemap extraction → grow Website Map immediately
-            if profile.get("sitemap") and requests_used < budget:
-                _update(db, scan, stage="SITEMAP", progress=25)
-                sm = extract_sitemap_urls(scan_url, allow_private=allow_private)
-                bump_requests(max(1, len(sm.get("sitemap_urls") or []) + 1))
-                if sm.get("sitemap_urls"):
-                    for sm_url in sm["sitemap_urls"]:
-                        surface.ensure_url_path(root, sm_url, http_status=200)
-                    log("SITEMAP", f"Parsed {len(sm['sitemap_urls'])} sitemap document(s)")
-                else:
-                    log("SITEMAP", "No sitemap discovered", severity="WARN")
-                for entry in sm.get("urls") or []:
-                    if not bump_requests(0):
-                        break
-                    u = entry.get("url") or ""
-                    if not u:
-                        continue
-                    surface.ensure_url_path(root, u)
-                    urls_discovered += 1
-                scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
-                log("SITEMAP", f"Extracted {sm.get('count', 0)} URL(s) from sitemap")
-                if sm.get("count"):
+        if bump_requests():
+            http_findings, discovery = discover_http(scan_url, allow_private=allow_private)
+            raw_findings.extend(http_findings)
+            if profile.get("technology"):
+                tech = fingerprint(discovery.get("headers") or {}, discovery.get("body_sample") or "")
+                scan.technologies_count = len(tech)
+                if tech:
+                    root.technology = ", ".join(
+                        (t.get("technology") or t.get("name") or "") for t in tech[:5]
+                    )
+                    db.commit()
+        if profile.get("passive") and bump_requests(3):
+            raw_findings.extend(check_common_files(scan_url, allow_private=allow_private))
+
+        # Sitemap extraction → grow Website Map immediately
+        if profile.get("sitemap") and requests_used < budget:
+            _update(db, scan, stage="SITEMAP", progress=25)
+            sm = extract_sitemap_urls(scan_url, allow_private=allow_private)
+            bump_requests(max(1, len(sm.get("sitemap_urls") or []) + 1))
+            if sm.get("sitemap_urls"):
+                for sm_url in sm["sitemap_urls"]:
+                    surface.ensure_url_path(root, sm_url, http_status=200)
+                log("SITEMAP", f"Parsed {len(sm['sitemap_urls'])} sitemap document(s)")
+            else:
+                log("SITEMAP", "No sitemap discovered", severity="WARN")
+            for entry in sm.get("urls") or []:
+                if not bump_requests(0):
+                    break
+                u = entry.get("url") or ""
+                if not u:
+                    continue
+                surface.ensure_url_path(root, u)
+                urls_discovered += 1
+            scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
+            log("SITEMAP", f"Extracted {sm.get('count', 0)} URL(s) from sitemap")
+            if sm.get("count"):
+                raw_findings.append({
+                    "title": f"Sitemap URLs discovered ({sm['count']})",
+                    "description": "URLs extracted from sitemap.xml / robots.txt Sitemap directives.",
+                    "severity": "INFO",
+                    "confidence": 90,
+                    "category": "sitemap",
+                    "affected_url": (sm.get("sitemap_urls") or [scan_url])[0],
+                    "source_engine": "sitemap",
+                    "evidence": f"sitemaps={len(sm.get('sitemap_urls') or [])}; urls={sm.get('count')}",
+                    "recommendation": "Review publicly listed paths for unintended exposure.",
+                })
+
+        if _cancelled(scan_id):
+            _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
+            return
+
+        if profile.get("crawl") and requests_used < budget:
+            _update(db, scan, stage="CRAWLING", progress=35)
+            crawl_result = crawl(scan_url, allow_private=allow_private)
+            urls_discovered = crawl_result.get("count") or 0
+            scan.discovered_urls = urls_discovered
+            for u in crawl_result.get("urls") or []:
+                if not bump_requests(0):
+                    break
+                node = surface.ensure_url_path(root, u.get("url") or "", http_status=u.get("status"))
+                if u.get("status") == 200 and any(
+                    x in (u.get("url") or "") for x in ("/admin", "/.env", "/.git", "/debug")
+                ):
                     raw_findings.append({
-                        "title": f"Sitemap URLs discovered ({sm['count']})",
-                        "description": "URLs extracted from sitemap.xml / robots.txt Sitemap directives.",
-                        "severity": "INFO",
-                        "confidence": 90,
-                        "category": "sitemap",
-                        "affected_url": (sm.get("sitemap_urls") or [scan_url])[0],
-                        "source_engine": "sitemap",
-                        "evidence": f"sitemaps={len(sm.get('sitemap_urls') or [])}; urls={sm.get('count')}",
-                        "recommendation": "Review publicly listed paths for unintended exposure.",
+                        "title": f"Discovered path {u.get('url')}",
+                        "description": "Crawler found a potentially sensitive path.",
+                        "severity": "LOW",
+                        "confidence": 60,
+                        "category": "crawl",
+                        "affected_url": u.get("url"),
+                        "source_engine": "crawler",
+                        "recommendation": "Review exposure of discovered paths.",
+                        "_node_id": node.id,
                     })
 
-            if _cancelled(scan_id):
-                _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
-                return
+        if profile.get("api_discovery") and requests_used < budget:
+            _update(db, scan, stage="API_DISCOVERY", progress=45)
+            apis = discover_api_paths(scan_url, allow_private=allow_private)
+            bump_requests(len(apis) or 1)
+            for a in apis:
+                node = surface.ensure_url_path(root, a["url"], http_status=a.get("status"))
+                surface.ensure_api(node, a["url"], method=a.get("method") or "GET")
+                log("API", f"API path {a['url']} ({a.get('status')})")
 
-            if profile.get("crawl") and requests_used < budget:
-                _update(db, scan, stage="CRAWLING", progress=35)
-                crawl_result = crawl(scan_url, allow_private=allow_private)
-                urls_discovered = crawl_result.get("count") or 0
-                scan.discovered_urls = urls_discovered
-                for u in crawl_result.get("urls") or []:
-                    if not bump_requests(0):
-                        break
-                    node = surface.ensure_url_path(root, u.get("url") or "", http_status=u.get("status"))
-                    if u.get("status") == 200 and any(
-                        x in (u.get("url") or "") for x in ("/admin", "/.env", "/.git", "/debug")
-                    ):
-                        raw_findings.append({
-                            "title": f"Discovered path {u.get('url')}",
-                            "description": "Crawler found a potentially sensitive path.",
-                            "severity": "LOW",
-                            "confidence": 60,
-                            "category": "crawl",
-                            "affected_url": u.get("url"),
-                            "source_engine": "crawler",
-                            "recommendation": "Review exposure of discovered paths.",
-                            "_node_id": node.id,
-                        })
+        if _cancelled(scan_id):
+            _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
+            return
 
-            if profile.get("api_discovery") and requests_used < budget:
-                _update(db, scan, stage="API_DISCOVERY", progress=45)
-                apis = discover_api_paths(scan_url, allow_private=allow_private)
-                bump_requests(len(apis) or 1)
-                for a in apis:
-                    node = surface.ensure_url_path(root, a["url"], http_status=a.get("status"))
-                    surface.ensure_api(node, a["url"], method=a.get("method") or "GET")
-                    log("API", f"API path {a['url']} ({a.get('status')})")
+        _update(db, scan, stage="SCANNING", progress=55)
+        warnings = []
+        # Production safety: skip ZAP active / nmap when production and not LAB profile
+        allow_aggressive = (scan.safety_mode == "lab") or profile.get("lab") or not WEBSCAN_PRODUCTION_SAFETY_MODE
 
-            if _cancelled(scan_id):
-                _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
-                return
+        if profile.get("nuclei"):
+            n_findings, err = run_nuclei(scan_url)
+            if err:
+                warnings.append(err)
+                log("NUCLEI", f"Unavailable: {err}", severity="WARN")
+            else:
+                raw_findings.extend(n_findings)
+                log("NUCLEI", f"Nuclei returned {len(n_findings)} finding(s)")
+        if profile.get("nmap") and allow_aggressive:
+            _update(db, scan, stage="PORT_SCAN", progress=60)
+            nmap_findings, ports, err = run_nmap(hostname)
+            if err:
+                warnings.append(err)
+                log("NMAP", f"Unavailable: {err}", severity="WARN")
+            else:
+                raw_findings.extend(nmap_findings)
+                scan.discovered_ports = len(ports)
+                for p in ports:
+                    surface.ensure_port(
+                        root,
+                        port=int(p.get("port") or 0),
+                        protocol=p.get("protocol") or "tcp",
+                        service=p.get("service") or p.get("product") or "",
+                        state=p.get("state") or "open",
+                    )
+        elif profile.get("nmap") and not allow_aggressive:
+            warnings.append("Nmap skipped (production safety mode)")
+            log("NMAP", "Skipped under production safety mode", severity="WARN")
 
-            _update(db, scan, stage="SCANNING", progress=55)
-            warnings = []
-            # Production safety: skip ZAP active / nmap when production and not LAB profile
-            allow_aggressive = (scan.safety_mode == "lab") or profile.get("lab") or not WEBSCAN_PRODUCTION_SAFETY_MODE
+        if profile.get("zap"):
+            log("ZAP", f"Starting scoped passive scan & spider on {scan_url}" + (f" (auth={target_auth_type})" if target_auth_type != "none" else ""), severity="INFO")
+            z_findings, z_urls, err = run_zap_passive(
+                scan_url,
+                cancel_check=lambda: _cancelled(scan_id),
+                allow_private=allow_private,
+                auth_type=target_auth_type,
+                auth_config=target_auth_config,
+            )
+            if err:
+                warnings.append(err)
+                log("ZAP", f"Notice: {err}", severity="WARN")
+            else:
+                # Feed ZAP spidered URLs directly into the Website Map attack-surface tree!
+                added_nodes = 0
+                for u in z_urls:
+                    try:
+                        surface.ensure_url_path(root, u)
+                        added_nodes += 1
+                    except Exception:
+                        pass
+                if added_nodes:
+                    urls_discovered += added_nodes
+                    scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
+                    db.commit()
 
-            if profile.get("nuclei"):
-                n_findings, err = run_nuclei(scan_url)
-                if err:
-                    warnings.append(err)
-                    log("NUCLEI", f"Unavailable: {err}", severity="WARN")
+                # Link ZAP findings to attack surface tree nodes
+                for f in z_findings:
+                    aff_url = f.get("affected_url") or scan_url
+                    try:
+                        node = surface.ensure_url_path(root, aff_url)
+                        f["_node_id"] = node.id
+                    except Exception:
+                        pass
+                raw_findings.extend(z_findings)
+                log("ZAP", f"Completed spider ({len(z_urls)} URLs) & passive scan ({len(z_findings)} findings)", severity="INFO")
+
+            # Active Scan if permitted
+            if allow_aggressive and not _cancelled(scan_id):
+                log("ZAP", f"Initiating rate-limited active scan on {scan_url}" + (f" (policy={scan_policy})" if scan_policy else ""), severity="INFO")
+                _update(db, scan, stage="ACTIVE_SCAN", progress=65)
+                za_findings, za_err = run_zap_active(
+                    scan_url,
+                    timeout=min(timeout, 90),
+                    cancel_check=lambda: _cancelled(scan_id),
+                    allow_private=allow_private,
+                    auth_type=target_auth_type,
+                    auth_config=target_auth_config,
+                    policy=scan_policy,
+                    alert_threshold=scan_alert_threshold,
+                    attack_strength=scan_attack_strength,
+                )
+                if za_err:
+                    warnings.append(za_err)
+                    log("ZAP", f"Active scan note: {za_err}", severity="WARN")
                 else:
-                    raw_findings.extend(n_findings)
-                    log("NUCLEI", f"Nuclei returned {len(n_findings)} finding(s)")
-            if profile.get("nmap") and allow_aggressive:
-                _update(db, scan, stage="PORT_SCAN", progress=60)
-                nmap_findings, ports, err = run_nmap(hostname)
-                if err:
-                    warnings.append(err)
-                    log("NMAP", f"Unavailable: {err}", severity="WARN")
-                else:
-                    raw_findings.extend(nmap_findings)
-                    scan.discovered_ports = len(ports)
-                    for p in ports:
-                        surface.ensure_port(
-                            root,
-                            port=int(p.get("port") or 0),
-                            protocol=p.get("protocol") or "tcp",
-                            service=p.get("service") or p.get("product") or "",
-                            state=p.get("state") or "open",
-                        )
-            elif profile.get("nmap") and not allow_aggressive:
-                warnings.append("Nmap skipped (production safety mode)")
-                log("NMAP", "Skipped under production safety mode", severity="WARN")
-
-            if profile.get("zap"):
-                log("ZAP", f"Starting passive scan & spider on {scan_url}", severity="INFO")
-                z_findings, z_urls, err = run_zap_passive(scan_url)
-                if err:
-                    warnings.append(err)
-                    log("ZAP", f"Notice: {err}", severity="WARN")
-                else:
-                    raw_findings.extend(z_findings)
-                    # Feed ZAP spidered URLs directly into the Website Map attack-surface tree!
-                    added_nodes = 0
-                    for u in z_urls:
+                    for f in za_findings:
+                        aff_url = f.get("affected_url") or scan_url
                         try:
-                            surface.ensure_url_path(root, u)
-                            added_nodes += 1
+                            node = surface.ensure_url_path(root, aff_url)
+                            f["_node_id"] = node.id
                         except Exception:
                             pass
-                    if added_nodes:
-                        urls_discovered += added_nodes
-                        scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
-                        db.commit()
-                    log("ZAP", f"Completed spider ({len(z_urls)} URLs) & passive scan ({len(z_findings)} findings)", severity="INFO")
+                    raw_findings.extend(za_findings)
+                    log("ZAP", f"Active scan completed with {len(za_findings)} finding(s)", severity="INFO")
 
+        if _cancelled(scan_id):
+            _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
+            return
 
-
-            if _cancelled(scan_id):
-                _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
-                return
-
-            _update(db, scan, stage="ANALYZING", progress=80)
-            if warnings:
-                scan.error_message = "; ".join(warnings)[:2000]
+        _update(db, scan, stage="ANALYZING", progress=80)
+        if warnings:
+            scan.error_message = "; ".join(warnings)[:2000]
 
         normalized = dedupe_findings(raw_findings, target_url=scan_url)
         existing = {

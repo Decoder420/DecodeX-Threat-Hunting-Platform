@@ -58,9 +58,34 @@ from .web_scanner.config import SCAN_PROFILES, WEBSCAN_ALLOW_PRIVATE_TARGETS
 from .web_scanner.surface import build_tree_payload
 from .web_scanner.validators import SSRFError, normalize_url, validate_scan_url
 
+CANONICAL_ALERT_STATUSES = {
+    "OPEN": "OPEN",
+    "IN_PROGRESS": "IN_PROGRESS",
+    "IN PROGRESS": "IN_PROGRESS",
+    "RESOLVED": "RESOLVED",
+    "CLOSED": "CLOSED",
+    "FALSE_POSITIVE": "FALSE_POSITIVE",
+    "FALSE POSITIVE": "FALSE_POSITIVE",
+    "QUARANTINE": "QUARANTINE",
+}
 
-def _err(code: str, message: str, status: int):
-    return jsonify({"error": {"code": code, "message": message}}), status
+CANONICAL_CASE_STATUSES = {
+    "OPEN": "OPEN",
+    "IN_PROGRESS": "IN_PROGRESS",
+    "IN PROGRESS": "IN_PROGRESS",
+    "RESOLVED": "RESOLVED",
+    "CLOSED": "CLOSED",
+}
+
+def _err(code: str, message: str, status: int = 400, details: dict | None = None):
+    return jsonify({
+        "success": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details or {},
+        }
+    }), status
 
 
 def _serialize_target(t: WebTarget) -> dict:
@@ -73,6 +98,8 @@ def _serialize_target(t: WebTarget) -> dict:
         "scope": t.scope,
         "enabled": t.enabled,
         "environment": getattr(t, "environment", None) or "lab",
+        "auth_type": getattr(t, "auth_type", "none") or "none",
+        "has_credentials": bool(getattr(t, "auth_config_encrypted", "")),
         "created_by": t.created_by,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "last_scan": t.last_scan.isoformat() if t.last_scan else None,
@@ -310,13 +337,15 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         alert = db.get(Alert, alert_id)
         if not alert:
             return _err("NOT_FOUND", "Alert not found.", 404)
-        status = (request.get_json(silent=True) or {}).get("status")
-        if not status:
+        raw_status = (request.get_json(silent=True) or {}).get("status") or ""
+        if not raw_status.strip():
             return _err("BAD_REQUEST", "status required.", 400)
-        alert.status = status
+        norm_key = raw_status.strip().upper().replace("-", "_")
+        canonical_status = CANONICAL_ALERT_STATUSES.get(norm_key, raw_status.strip().upper())
+        alert.status = canonical_status
         db.commit()
         write_audit(db, action="alert.status_change", user=g.current_user,
-                    resource_type="alert", resource_id=alert_id, details=f"status={status}")
+                    resource_type="alert", resource_id=alert_id, details=f"status={canonical_status}")
         return jsonify(_serialize_alert(alert))
 
     @app.route("/api/alerts/<int:alert_id>/assign", methods=["POST"])
@@ -541,12 +570,14 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         if not title:
             return _err("BAD_REQUEST", "title required.", 400)
         next_num = (db.query(Case).count() or 0) + 1
+        raw_status = (data.get("status") or "OPEN").strip().upper().replace("-", "_")
+        case_status = CANONICAL_CASE_STATUSES.get(raw_status, "OPEN")
         case = Case(
             case_number=f"CASE-{next_num:05d}",
             title=title,
             description=data.get("description") or "",
             severity=(data.get("severity") or "MEDIUM").upper(),
-            status=(data.get("status") or "OPEN").upper(),
+            status=case_status,
             assigned_to=data.get("assigned_to") or "",
             created_by=g.current_user.username,
             risk_score=int(data.get("risk_score") or 0),
@@ -602,8 +633,9 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         if not case:
             return _err("NOT_FOUND", "Case not found.", 404)
         data = request.get_json(silent=True) or {}
-        if "status" in data:
-            case.status = (data["status"] or "OPEN").upper()
+        if "status" in data and data["status"]:
+            raw_status = str(data["status"]).strip().upper().replace("-", "_")
+            case.status = CANONICAL_CASE_STATUSES.get(raw_status, case.status)
         if "assigned_to" in data:
             case.assigned_to = data["assigned_to"]
         if "severity" in data:
@@ -898,6 +930,16 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
                 url = norm
             else:
                 return _err("INVALID_URL", str(exc), 400)
+        auth_type = (data.get("auth_type") or "none").strip()[:32]
+        auth_config = data.get("auth_config")
+        auth_enc = ""
+        if auth_type != "none" and auth_config:
+            from .db import encrypt_secret, VaultConfigurationError
+            try:
+                auth_enc = encrypt_secret(json.dumps(auth_config))
+            except VaultConfigurationError as exc:
+                return _err("VAULT_NOT_CONFIGURED", str(exc), 500)
+
         target = WebTarget(
             name=name,
             url=url,
@@ -905,6 +947,8 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             authorization_status="PENDING",
             scope=(data.get("scope") or "").strip(),
             environment=(data.get("environment") or "lab").strip()[:64],
+            auth_type=auth_type,
+            auth_config_encrypted=auth_enc,
             created_by=g.current_user.username,
             enabled=True,
         )
@@ -939,6 +983,18 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         if not target:
             return _err("NOT_FOUND", "Target not found.", 404)
         data = request.get_json(silent=True) or {}
+        if "auth_type" in data:
+            target.auth_type = str(data["auth_type"]).strip()[:32]
+        if "auth_config" in data:
+            from .db import encrypt_secret, VaultConfigurationError
+            ac = data["auth_config"]
+            if ac:
+                try:
+                    target.auth_config_encrypted = encrypt_secret(json.dumps(ac))
+                except VaultConfigurationError as exc:
+                    return _err("VAULT_NOT_CONFIGURED", str(exc), 500)
+            else:
+                target.auth_config_encrypted = ""
         if "authorization_status" in data:
             status = str(data["authorization_status"]).upper()
             if status == "AUTHORIZED":
@@ -1267,7 +1323,7 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             if prepared_by.lower() in {"admin", "administrator"}:
                 prepared_by = "Manan Mandal"
             buffer = generate_web_scan_pdf(db, scan, prepared_by=prepared_by)
-            year = (scan.started_at or scan.created_at or datetime.utcnow()).year
+            year = (scan.started_at or scan.created_at or utcnow()).year
             target_slug = re.sub(r"[^a-zA-Z0-9_\-]", "_", (target.name if target else "Target")[:25])
             filename = f"WAS-{year}-{scan.id:03d}_{target_slug}_Security_Report.pdf"
             return send_file(

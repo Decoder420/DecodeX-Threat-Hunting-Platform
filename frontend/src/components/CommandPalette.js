@@ -93,6 +93,7 @@ export default function CommandPalette({ isOpen, onClose, onOpenProwler }) {
 
   const allItems = useMemo(() => {
     return [...defaultNavigationItems, ...actionItems, ...targetItems, ...alertItems];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targets, alerts]);
 
   const filteredItems = useMemo(() => {

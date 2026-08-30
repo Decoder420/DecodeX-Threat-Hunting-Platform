@@ -17,6 +17,50 @@ const STAGES = [
   "COMPLETED",
 ];
 
+export function renderScanStatusBadge(scan) {
+  if (!scan) return null;
+  const status = (scan.status || "UNKNOWN").toUpperCase();
+
+  if (status !== "PARTIAL") {
+    return (
+      <Badge
+        tone={
+          status === "COMPLETED"
+            ? "ok"
+            : status === "FAILED"
+            ? "danger"
+            : status === "RUNNING"
+            ? "info"
+            : "warn"
+        }
+      >
+        {status}
+      </Badge>
+    );
+  }
+
+  // Parse error_message to surface which engines were skipped/unavailable
+  const notes = scan.error_message || "";
+  const skipped = [];
+  if (/nmap/i.test(notes)) skipped.push("Nmap");
+  if (/nuclei/i.test(notes)) skipped.push("Nuclei");
+  if (/zap/i.test(notes)) skipped.push("ZAP");
+
+  const label = skipped.length > 0
+    ? `PARTIAL (${skipped.join(", ")} skipped)`
+    : "PARTIAL (sub-engines skipped)";
+
+  return (
+    <Badge
+      tone="warn"
+      title={notes ? `Partial scan: ${notes}` : "Scan completed with some engines skipped"}
+      style={{ cursor: notes ? "help" : "default" }}
+    >
+      {label}
+    </Badge>
+  );
+}
+
 export default function WebScansPage() {
   const canRun = hasPermission("webscan.run");
   const navigate = useNavigate();
@@ -250,7 +294,7 @@ export default function WebScansPage() {
                     <span className="muted">({selectedTarget.url})</span>
                     {latestTargetScan ? (
                       <div style={{ fontSize: "0.85rem", marginTop: 4 }} className="muted">
-                        Latest Assessment: Scan #{latestTargetScan.id} · <Badge tone="ok">{latestTargetScan.status}</Badge> · Risk: {latestTargetScan.risk_score || 0}/100 · {latestTargetScan.findings_count || 0} findings
+                        Latest Assessment: Scan #{latestTargetScan.id} · {renderScanStatusBadge(latestTargetScan)} · Risk: {latestTargetScan.risk_score || 0}/100 · {latestTargetScan.findings_count || 0} findings
                       </div>
                     ) : (
                       <div style={{ fontSize: "0.85rem", marginTop: 4 }} className="muted">
@@ -285,7 +329,7 @@ export default function WebScansPage() {
           {wizard.step === 2 ? (
             <div>
               <p>Select scan profile.</p>
-              {["QUICK", "STANDARD", "DEEP", "PASSIVE", "API", "AUTHENTICATED", "LAB", "DEMO"].map((p) => (
+              {["QUICK", "STANDARD", "DEEP", "PASSIVE", "API", "AUTHENTICATED", "LAB"].map((p) => (
                 <label key={p} className="websec__radio">
                   <input
                     type="radio"
@@ -303,7 +347,6 @@ export default function WebScansPage() {
                       {p === "API" && " — API/OpenAPI + sitemap oriented"}
                       {p === "AUTHENTICATED" && " — crawl/API with auth profile intent"}
                       {p === "LAB" && " — aggressive lab profile"}
-                      {p === "DEMO" && " — synthetic tree for UI rehearsal"}
                     </span>
                   </span>
                 </label>
@@ -429,7 +472,7 @@ export default function WebScansPage() {
             </div>
             <div className="websec__kpi">
               <div className="websec__kpi-label">Status</div>
-              <Badge>{activeScan.status}</Badge>
+              {renderScanStatusBadge(activeScan)}
             </div>
           </div>
           <div className="websec__timeline">
@@ -549,17 +592,7 @@ export default function WebScansPage() {
                   <td>{s.target_id}</td>
                   <td>{s.scan_profile}</td>
                   <td>
-                    <Badge
-                      tone={
-                        s.status === "COMPLETED"
-                          ? "ok"
-                          : s.status === "FAILED"
-                          ? "danger"
-                          : "warn"
-                      }
-                    >
-                      {s.status}
-                    </Badge>
+                    {renderScanStatusBadge(s)}
                   </td>
                   <td>{s.progress ?? 0}%</td>
                   <td>{s.findings_count}</td>

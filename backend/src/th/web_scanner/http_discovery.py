@@ -11,6 +11,7 @@ import requests
 
 from .config import WEBSCAN_MAX_RESPONSE_BYTES, WEBSCAN_REQUEST_TIMEOUT
 from .validators import validate_redirect_url, validate_scan_url
+from ..db import utcnow
 
 SECURITY_HEADERS = [
     "Content-Security-Policy",
@@ -69,10 +70,13 @@ def check_tls(url: str, *, allow_private: bool = False) -> tuple[list[dict], dic
                     affected_url=url,
                 ))
                 if not_after:
-                    expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(
-                        tzinfo=timezone.utc
-                    )
-                    days = (expiry - datetime.now(timezone.utc)).days
+                    try:
+                        clean_date = not_after.replace("GMT", "UTC")
+                        expiry = datetime.strptime(clean_date, "%b %d %H:%M:%S %Y %Z")
+                        expiry_naive = expiry.replace(tzinfo=None) if expiry.tzinfo else expiry
+                        days = (expiry_naive - utcnow()).days
+                    except Exception:
+                        days = 365
                     if days < 30:
                         findings.append(_finding(
                             title="TLS certificate expiring soon",
