@@ -24,9 +24,9 @@
 
 ## 📸 Interface Preview
 
-| SOC Executive Telemetry & Detection Workbench | Interactive Website Attack Surface Map |
+| SOC Executive Telemetry & Detection Workbench | Web Application Security & DAST Posture |
 | :---: | :---: |
-| ![DecodeX Dashboard](docs/screenshots/dashboard.png) | ![DecodeX Website Map](docs/screenshots/website_map.png) |
+| ![DecodeX Dashboard](docs/screenshots/dashboard.png) | ![DecodeX Web Security Posture](docs/screenshots/web_security.png) |
 
 ---
 
