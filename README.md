@@ -300,6 +300,15 @@ Git checkpoint branches and tags are permanently preserved:
 
 ---
 
+## 🔒 Security Architecture & Hardening Documentation
+
+For complete architectural details, policies, and hardening history, refer to:
+- **[SECURITY.md](SECURITY.md)**: RBAC access control, authenticated scan encryption, SSRF protection, login rate limiting, and environment variable requirements.
+- **[CHANGELOG.md](CHANGELOG.md)**: Complete security hardening history detailing the removal of fabricated telemetry, CORS restriction, status enum canonicalization, and secret protection.
+- **[docs/GIT_HISTORY_SCRUB_RUNBOOK.md](docs/GIT_HISTORY_SCRUB_RUNBOOK.md)**: Verified step-by-step instructions for scrubbing historical rotated secrets across past commit objects using `git-filter-repo`.
+
+---
+
 ## 💬 Community & Contributing
 
 - **Discussions**: Have questions, ideas, or custom Sigma rules? Join the conversation on [GitHub Discussions](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/discussions).
