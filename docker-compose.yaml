@@ -38,13 +38,14 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/threat_hunting.db:/app/threat_hunting.db
+      - ./backend/data:/app/data
     depends_on:
       zap:
         condition: service_healthy
     networks:
       - threat-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 5000), timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=3)"]
       interval: 5s
       timeout: 3s
       retries: 5

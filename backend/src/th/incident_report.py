@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .db import utcnow
+
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "decodex_transparent.png"
 
 from reportlab.lib import colors
@@ -93,7 +95,7 @@ def _normalize_status(status: str) -> str:
 
 
 def _incident_id(alert_id: int, when: datetime | None) -> str:
-    year = (when or datetime.utcnow()).year
+    year = (when or utcnow()).year
     return f"IR-{year}-{int(alert_id):03d}"
 
 
@@ -540,7 +542,7 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
     """Assemble report context from alert + related SIEM data."""
     from .db import Asset, Case, CaseAlert, CaseNote, Event, IOC
 
-    when = alert.event_timestamp or alert.created_at or datetime.utcnow()
+    when = alert.event_timestamp or alert.created_at or utcnow()
     incident_id = _incident_id(alert.id, when)
     title = (alert.title or alert.description or "Security Incident").strip()
 
@@ -695,7 +697,7 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
         "prepared_by": analyst,
         "prepared_role": "Information Security Engineer",
         "incident_date": when,
-        "report_date": datetime.utcnow(),
+        "report_date": utcnow(),
         "organization": org,
         "category": _category_from_alert(alert),
         "detection_source": detection_source,

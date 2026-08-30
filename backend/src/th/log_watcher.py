@@ -39,7 +39,16 @@ def get_watcher_status() -> dict:
 
 
 def _process_cycle(broadcast_fn=None) -> None:
-    _initialize_database()
+    try:
+        _initialize_database()
+        from sqlalchemy import inspect
+        from .db import engine
+        if not inspect(engine).has_table("users") or not inspect(engine).has_table("events"):
+            return
+    except Exception as exc:
+        logger.debug("Database not yet initialized for log watcher: %s", exc)
+        return
+
     db = SessionLocal()
     try:
         evaluator = RuleEvaluator(str(DEFAULT_RULE_FILE))

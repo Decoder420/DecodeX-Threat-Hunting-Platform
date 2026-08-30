@@ -1,4 +1,7 @@
-from rich import print
+try:
+    from rich import print
+except ImportError:
+    pass
 
 from .db import Alert, IngestionState, get_db
 from .pipeline import DEFAULT_RULE_FILE, build_dashboard_summary, refresh_hunting_state, unique_alerts
