@@ -231,6 +231,7 @@ ROLE_PERMISSIONS = {
         "system.read", "system.write",
         "dashboard.read",
         "ingest_keys.read", "ingest_keys.write",
+        "webhooks.read", "webhooks.write",
     }),
     "analyst": frozenset({
         "alerts.read", "alerts.write",
@@ -247,14 +248,17 @@ ROLE_PERMISSIONS = {
         "soar.execute",
         "reports.read",
         "dashboard.read",
+        "webhooks.read", "webhooks.write",
     }),
     "viewer": frozenset({
         "alerts.read",
         "events.read",
         "ioc.read",
         "assets.read",
+        "webscan.read",
         "reports.read",
         "dashboard.read",
+        "webhooks.read",
     }),
 }
 
@@ -516,6 +520,26 @@ class WebTarget(Base):
     environment = Column(String, nullable=False, default="lab")
     auth_type = Column(String, nullable=False, default="none")  # none, token, form, basic
     auth_config_encrypted = Column(Text, nullable=False, default="")  # Fernet-encrypted JSON credentials
+    schedule_enabled = Column(Boolean, nullable=False, default=False)
+    schedule_interval_hours = Column(Integer, nullable=False, default=24)  # 24 = daily, 168 = weekly
+    next_scheduled_scan = Column(DateTime, nullable=True)
+    last_scheduled_scan = Column(DateTime, nullable=True)
+
+
+class NotificationWebhook(Base):
+    __tablename__ = "notification_webhooks"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    channel_type = Column(String, nullable=False, default="generic")  # discord, slack, teams, generic
+    events_subscribed = Column(String, nullable=False, default="alert.critical,finding.critical,scan.completed")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    last_triggered_at = Column(DateTime, nullable=True)
+    last_status_code = Column(Integer, nullable=True)
+    last_error = Column(String, nullable=False, default="")
+    delivery_count = Column(Integer, nullable=False, default=0)
 
 
 class WebScan(Base):
@@ -747,6 +771,22 @@ def _ensure_legacy_sqlite_columns() -> None:
             _add_column_if_missing(
                 connection, "web_targets", "auth_config_encrypted",
                 "ALTER TABLE web_targets ADD COLUMN auth_config_encrypted TEXT NOT NULL DEFAULT ''",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "schedule_enabled",
+                "ALTER TABLE web_targets ADD COLUMN schedule_enabled BOOLEAN NOT NULL DEFAULT 0",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "schedule_interval_hours",
+                "ALTER TABLE web_targets ADD COLUMN schedule_interval_hours INTEGER NOT NULL DEFAULT 24",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "next_scheduled_scan",
+                "ALTER TABLE web_targets ADD COLUMN next_scheduled_scan DATETIME",
+            )
+            _add_column_if_missing(
+                connection, "web_targets", "last_scheduled_scan",
+                "ALTER TABLE web_targets ADD COLUMN last_scheduled_scan DATETIME",
             )
 
         if inspect(engine).has_table("web_scans"):

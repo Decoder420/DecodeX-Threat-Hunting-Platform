@@ -3,9 +3,11 @@ import api from "../api";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import ProwlerSidePanel from "../components/ProwlerSidePanel";
+import WebhookManagerModal from "../components/WebhookManagerModal";
 import { THEMES, getStoredPreferences, saveStoredPreferences, applyTheme } from "../theme";
 
 export default function SettingsPage() {
+  const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("branding");
   const [settings, setSettings] = useState({
     company_name: "DecodeX Security Technologies Private Limited",
@@ -773,14 +775,56 @@ export default function SettingsPage() {
       {/* TAB 5: ALERT NOTIFICATIONS */}
       {activeTab === "notifications" && (
         <form onSubmit={handleSave} className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
-          <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Live SOC Incident Webhook Dispatchers</h3>
-          <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
-            Automatically dispatch real-time incident cards to your security operations chat rooms:
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <h3 style={{ margin: 0, color: "#fff", fontSize: "1.15rem" }}>Live SOC Incident Webhook Dispatchers</h3>
+              <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginTop: 4 }}>
+                Automatically dispatch real-time incident cards and scan findings to your security operations chat rooms:
+              </div>
+            </div>
+            <Button
+              type="button"
+              tone="primary"
+              onClick={() => setIsWebhookModalOpen(true)}
+            >
+              🔔 Manage Multi-Channel Webhooks
+            </Button>
+          </div>
+
+          <div
+            style={{
+              background: "rgba(86, 198, 255, 0.08)",
+              border: "1px solid rgba(86, 198, 255, 0.2)",
+              borderRadius: 10,
+              padding: "16px 20px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem" }}>
+                Multi-Channel Event Subscriptions
+              </div>
+              <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                Subscribe Discord, Slack, MS Teams, or custom webhooks to specific events like <code>finding.critical</code>, <code>alert.critical</code>, and <code>scan.completed</code>.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsWebhookModalOpen(true)}
+            >
+              Open Webhook Studio →
+            </Button>
           </div>
 
           <div>
             <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
-              Slack Incoming Webhook URL
+              Slack Incoming Webhook URL (Default Fallback)
             </label>
             <div style={{ display: "flex", gap: 10 }}>
               <input
@@ -805,7 +849,7 @@ export default function SettingsPage() {
 
           <div>
             <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
-              Discord Webhook URL
+              Discord Webhook URL (Default Fallback)
             </label>
             <div style={{ display: "flex", gap: 10 }}>
               <input
@@ -1062,6 +1106,11 @@ export default function SettingsPage() {
 
       {/* Prowler Side Panel */}
       <ProwlerSidePanel isOpen={prowlerOpen} onClose={() => setProwlerOpen(false)} />
+      {/* Webhook Manager Modal */}
+      <WebhookManagerModal
+        isOpen={isWebhookModalOpen}
+        onClose={() => setIsWebhookModalOpen(false)}
+      />
     </div>
   );
 }

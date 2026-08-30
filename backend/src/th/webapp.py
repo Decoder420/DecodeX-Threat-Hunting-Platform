@@ -336,8 +336,28 @@ def broadcast_new_alert(alert_obj):
         "source": "endpoint/live.log",
         "assigned": alert_obj.assigned_to or "Unassigned",
         "suppressed": "No",
-        "timestamp": alert_obj.event_timestamp.isoformat()
+        "timestamp": alert_obj.event_timestamp.isoformat() if hasattr(alert_obj.event_timestamp, "isoformat") else str(alert_obj.event_timestamp)
     })
+
+    # Dispatch real-time webhook notification
+    try:
+        from .webhook_dispatcher import dispatch_webhook_event
+        sev = (alert_obj.severity or "medium").lower()
+        dispatch_webhook_event(
+            event_type=f"alert.{sev}",
+            severity=alert_obj.severity,
+            title=f"SIEM Alert: {alert_obj.description or 'Security Detection'}",
+            description=f"Detection rule triggered on host {alert_obj.host}. Tactic: {alert_obj.tactic or 'Unknown'}.",
+            source=alert_obj.host or "DecodeX SIEM",
+            details={
+                "alert_id": alert_obj.id,
+                "tactic": alert_obj.tactic,
+                "host": alert_obj.host,
+                "status": alert_obj.status,
+            },
+        )
+    except Exception as exc:
+        logger.debug("Failed dispatching alert webhook: %s", exc)
 
 # --- CORE SIEM ROUTES ---
 @app.route("/api/dashboard")
@@ -1195,6 +1215,11 @@ if os.environ.get("FLASK_ENV") != "testing":
 # Start background log tailer (offset-tracked via IngestionState).
 if os.environ.get("TH_DISABLE_LOG_WATCHER", "").lower() not in ("1", "true", "yes") and os.environ.get("FLASK_ENV") != "testing":
     start_log_watcher(broadcast_fn=broadcast_new_alert, poll_seconds=float(os.environ.get("TH_INGEST_POLL_SECONDS", "2")))
+
+# Start background continuous DAST scan scheduler daemon
+if os.environ.get("TH_DISABLE_SCAN_SCHEDULER", "").lower() not in ("1", "true", "yes") and os.environ.get("FLASK_ENV") != "testing":
+    from .scan_scheduler import start_scan_scheduler
+    start_scan_scheduler(interval_seconds=int(os.environ.get("TH_SCHEDULER_POLL_SECONDS", "60")))
 
 if __name__ == "__main__":
     # Force 0.0.0.0 so Docker can route traffic to your Mac

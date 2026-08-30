@@ -148,4 +148,12 @@ export const testSigmaRule = (payload) => api.post("/sigma/rules/test", payload)
 export const saveSigmaRule = (yaml) => api.post("/sigma/rules/save", { yaml });
 export const getMitreMatrix = () => api.get("/sigma/mitre-matrix");
 
+// --- Webhooks & Continuous DAST Scheduling APIs ---
+export const listWebhooks = () => api.get("/webhooks");
+export const createWebhook = (payload) => api.post("/webhooks", payload);
+export const updateWebhook = (id, payload) => api.put(`/webhooks/${id}`, payload);
+export const deleteWebhook = (id) => api.delete(`/webhooks/${id}`);
+export const testWebhook = (id) => api.post(`/webhooks/${id}/test`);
+export const setTargetSchedule = (targetId, payload) => api.post(`/web-targets/${targetId}/schedule`, payload);
+
 export default api;

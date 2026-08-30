@@ -22,6 +22,7 @@ from .db import (
     Event,
     IOC,
     IngestionState,
+    NotificationWebhook,
     OrgSettings,
     WebFinding,
     WebScan,
@@ -2188,3 +2189,168 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         db = get_db()
         write_audit(db, action="prowler.audit_run", user=g.current_user, resource_type="cspm", details="Triggered manual Prowler posture assessment")
         return get_prowler_posture()
+
+    # =========================================================================
+    # WEBHOOK NOTIFICATIONS & ALERT DISPATCH APIS
+    # =========================================================================
+
+    def _serialize_webhook(wh: NotificationWebhook) -> dict:
+        return {
+            "id": wh.id,
+            "name": wh.name,
+            "url": wh.url,
+            "channel_type": wh.channel_type,
+            "events_subscribed": wh.events_subscribed,
+            "is_active": wh.is_active,
+            "created_at": wh.created_at.isoformat() if wh.created_at else None,
+            "last_triggered_at": wh.last_triggered_at.isoformat() if wh.last_triggered_at else None,
+            "last_status_code": wh.last_status_code,
+            "last_error": wh.last_error,
+            "delivery_count": wh.delivery_count or 0,
+        }
+
+    @app.route("/api/webhooks", methods=["GET"])
+    @login_required
+    @require_permission("webhooks.read")
+    def list_webhooks():
+        db = get_db()
+        webhooks = db.query(NotificationWebhook).order_by(NotificationWebhook.created_at.desc()).all()
+        return jsonify({
+            "status": "ok",
+            "count": len(webhooks),
+            "webhooks": [_serialize_webhook(w) for w in webhooks],
+        })
+
+    @app.route("/api/webhooks", methods=["POST"])
+    @login_required
+    @require_permission("webhooks.write")
+    def create_webhook():
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        url = (payload.get("url") or "").strip()
+        channel_type = (payload.get("channel_type") or "generic").lower().strip()
+        events_subscribed = (payload.get("events_subscribed") or "alert.critical,finding.critical,scan.completed").strip()
+        is_active = bool(payload.get("is_active", True))
+
+        if not name or not url:
+            return jsonify({"status": "error", "message": "Webhook 'name' and 'url' are required."}), 400
+
+        from .webhook_dispatcher import is_ssrf_safe_url
+        is_safe, reason = is_ssrf_safe_url(url)
+        if not is_safe:
+            return jsonify({"status": "error", "message": f"Webhook URL rejected: {reason}"}), 400
+
+        db = get_db()
+        wh = NotificationWebhook(
+            name=name,
+            url=url,
+            channel_type=channel_type,
+            events_subscribed=events_subscribed,
+            is_active=is_active,
+            created_at=utcnow(),
+        )
+        db.add(wh)
+        db.commit()
+        write_audit(db, action="webhook.create", user=g.current_user, resource_type="webhook", resource_id=str(wh.id), details=f"Created {channel_type} webhook '{name}'")
+        return jsonify({"status": "ok", "webhook": _serialize_webhook(wh)}), 201
+
+    @app.route("/api/webhooks/<int:webhook_id>", methods=["PUT"])
+    @login_required
+    @require_permission("webhooks.write")
+    def update_webhook(webhook_id: int):
+        db = get_db()
+        wh = db.query(NotificationWebhook).filter_by(id=webhook_id).first()
+        if not wh:
+            return jsonify({"status": "error", "message": "Webhook not found."}), 404
+
+        payload = request.get_json(silent=True) or {}
+        if "name" in payload: wh.name = str(payload["name"]).strip()
+        if "url" in payload:
+            url = str(payload["url"]).strip()
+            from .webhook_dispatcher import is_ssrf_safe_url
+            is_safe, reason = is_ssrf_safe_url(url)
+            if not is_safe:
+                return jsonify({"status": "error", "message": f"Webhook URL rejected: {reason}"}), 400
+            wh.url = url
+        if "channel_type" in payload: wh.channel_type = str(payload["channel_type"]).lower().strip()
+        if "events_subscribed" in payload: wh.events_subscribed = str(payload["events_subscribed"]).strip()
+        if "is_active" in payload: wh.is_active = bool(payload["is_active"])
+
+        db.commit()
+        write_audit(db, action="webhook.update", user=g.current_user, resource_type="webhook", resource_id=str(wh.id), details=f"Updated webhook '{wh.name}'")
+        return jsonify({"status": "ok", "webhook": _serialize_webhook(wh)})
+
+    @app.route("/api/webhooks/<int:webhook_id>", methods=["DELETE"])
+    @login_required
+    @require_permission("webhooks.write")
+    def delete_webhook(webhook_id: int):
+        db = get_db()
+        wh = db.query(NotificationWebhook).filter_by(id=webhook_id).first()
+        if not wh:
+            return jsonify({"status": "error", "message": "Webhook not found."}), 404
+
+        wh_name = wh.name
+        db.delete(wh)
+        db.commit()
+        write_audit(db, action="webhook.delete", user=g.current_user, resource_type="webhook", resource_id=str(webhook_id), details=f"Deleted webhook '{wh_name}'")
+        return jsonify({"status": "ok", "message": f"Webhook '{wh_name}' deleted."})
+
+    @app.route("/api/webhooks/<int:webhook_id>/test", methods=["POST"])
+    @login_required
+    @require_permission("webhooks.write")
+    def test_webhook(webhook_id: int):
+        db = get_db()
+        wh = db.query(NotificationWebhook).filter_by(id=webhook_id).first()
+        if not wh:
+            return jsonify({"status": "error", "message": "Webhook not found."}), 404
+
+        from .webhook_dispatcher import send_test_webhook_ping
+        ok, status_code, resp_body = send_test_webhook_ping(wh)
+        return jsonify({
+            "status": "ok" if ok else "error",
+            "delivered": ok,
+            "http_status": status_code,
+            "response": resp_body,
+        }), (200 if ok else 502)
+
+    # =========================================================================
+    # DAST RECURRING SCAN SCHEDULING APIS
+    # =========================================================================
+
+    @app.route("/api/web-targets/<int:target_id>/schedule", methods=["POST"])
+    @login_required
+    @require_permission("webscan.run")
+    def set_target_scan_schedule(target_id: int):
+        db = get_db()
+        target = db.query(WebTarget).filter_by(id=target_id).first()
+        if not target:
+            return jsonify({"status": "error", "message": "Target not found."}), 404
+
+        payload = request.get_json(silent=True) or {}
+        enabled = bool(payload.get("schedule_enabled", False))
+        interval_hours = max(1, int(payload.get("schedule_interval_hours", 24)))
+
+        target.schedule_enabled = enabled
+        target.schedule_interval_hours = interval_hours
+        if enabled:
+            from datetime import timedelta
+            target.next_scheduled_scan = utcnow() + timedelta(hours=interval_hours)
+        else:
+            target.next_scheduled_scan = None
+
+        db.commit()
+        write_audit(
+            db,
+            action="webscan.schedule_update",
+            user=g.current_user,
+            resource_type="web_target",
+            resource_id=str(target.id),
+            details=f"Scan schedule {'enabled (every ' + str(interval_hours) + 'h)' if enabled else 'disabled'}"
+        )
+        return jsonify({
+            "status": "ok",
+            "target_id": target.id,
+            "schedule_enabled": target.schedule_enabled,
+            "schedule_interval_hours": target.schedule_interval_hours,
+            "next_scheduled_scan": target.next_scheduled_scan.isoformat() if target.next_scheduled_scan else None,
+        })

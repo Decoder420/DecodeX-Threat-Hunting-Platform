@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import api from "../../api";
+import api, { setTargetSchedule } from "../../api";
 import webApi from "../../webApi";
 import Badge from "../../components/ui/Badge";
 import Button from "../../components/ui/Button";
@@ -21,6 +21,12 @@ export default function WebTargetDetailPage() {
   const [findingFilter, setFindingFilter] = useState("ALL");
   const [scanBusy, setScanBusy] = useState(false);
 
+  // Scan Scheduling State
+  const [schedEnabled, setSchedEnabled] = useState(false);
+  const [schedInterval, setSchedInterval] = useState(24);
+  const [schedSaving, setSchedSaving] = useState(false);
+  const [schedMessage, setSchedMessage] = useState("");
+
   // AI Triage State
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [aiData, setAiData] = useState(null);
@@ -33,10 +39,36 @@ export default function WebTargetDetailPage() {
     try {
       const res = await api.get(`/webscan/targets/${targetId}/cockpit`);
       setCockpit(res.data);
+      if (res.data?.target) {
+        setSchedEnabled(!!res.data.target.schedule_enabled);
+        setSchedInterval(res.data.target.schedule_interval_hours || 24);
+      }
     } catch (err) {
       setError(err.response?.data?.error || "Failed to load target investigation details.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveSchedule = async (e) => {
+    e.preventDefault();
+    setSchedSaving(true);
+    setSchedMessage("");
+    try {
+      const res = await setTargetSchedule(targetId, {
+        schedule_enabled: schedEnabled,
+        schedule_interval_hours: parseInt(schedInterval, 10),
+      });
+      setSchedMessage(
+        res.data.schedule_enabled
+          ? `✓ Automated scan schedule enabled (every ${res.data.schedule_interval_hours}h). Next run: ${res.data.next_scheduled_scan ? new Date(res.data.next_scheduled_scan).toLocaleString() : "Pending"}`
+          : "✓ Automated scan schedule disabled."
+      );
+      await loadCockpit();
+    } catch (err) {
+      setSchedMessage(`✗ Failed updating schedule: ${err.message}`);
+    } finally {
+      setSchedSaving(false);
     }
   };
 
@@ -305,6 +337,21 @@ export default function WebTargetDetailPage() {
         >
           🕸️ Blast Radius Graph
         </button>
+        <button
+          onClick={() => setActiveTab("schedule")}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: activeTab === "schedule" ? "#56c6ff" : "transparent",
+            color: activeTab === "schedule" ? "#041019" : "var(--color-text-muted)",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontSize: "0.88rem",
+          }}
+        >
+          🔄 Automated Schedule {target.schedule_enabled ? "🟢" : ""}
+        </button>
       </div>
 
       {/* TAB 1: FINDINGS FOR THIS TARGET */}
@@ -567,6 +614,119 @@ export default function WebTargetDetailPage() {
           findings={findings}
           alerts={correlated_alerts}
         />
+      )}
+
+      {/* TAB 6: AUTOMATED RECURRING SCAN SCHEDULER */}
+      {activeTab === "schedule" && (
+        <div className="surface" style={{ padding: 28, borderRadius: 12, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "1.4rem" }}>🔄</span>
+                <h3 style={{ margin: 0, color: "#fff", fontSize: "1.2rem" }}>Continuous DAST Scan Scheduler</h3>
+                <Badge tone={target.schedule_enabled ? "ok" : "neutral"}>
+                  {target.schedule_enabled ? "Active Schedule" : "Disabled"}
+                </Badge>
+              </div>
+              <p style={{ margin: "6px 0 0", color: "var(--color-text-muted)", fontSize: "0.85rem" }}>
+                Automatically execute background DAST vulnerability scans against this target on a recurring cron interval.
+              </p>
+            </div>
+
+            {target.schedule_enabled && target.next_scheduled_scan && (
+              <div
+                style={{
+                  background: "rgba(86, 198, 255, 0.1)",
+                  border: "1px solid rgba(86, 198, 255, 0.3)",
+                  borderRadius: 8,
+                  padding: "10px 16px",
+                  fontSize: "0.85rem",
+                  color: "#56c6ff",
+                }}
+              >
+                ⏱️ Next automated scan: <strong>{new Date(target.next_scheduled_scan).toLocaleString()}</strong>
+              </div>
+            )}
+          </div>
+
+          {schedMessage && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: schedMessage.startsWith("✓") ? "rgba(62, 224, 162, 0.1)" : "rgba(255, 92, 122, 0.1)",
+                color: schedMessage.startsWith("✓") ? "#3ee0a2" : "#ff5c7a",
+                borderRadius: 8,
+                fontSize: "0.85rem",
+              }}
+            >
+              {schedMessage}
+            </div>
+          )}
+
+          <form onSubmit={handleSaveSchedule} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ background: "var(--bg-1)", padding: 18, borderRadius: 10, border: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 16 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={schedEnabled}
+                  onChange={(e) => setSchedEnabled(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: "pointer" }}
+                />
+                <div>
+                  <strong style={{ fontSize: "0.95rem" }}>Enable Recurring Automated Scans</strong>
+                  <div style={{ fontSize: "0.78rem", color: "var(--color-text-muted)" }}>
+                    Background scheduler daemon will automatically evaluate and scan this target when due.
+                  </div>
+                </div>
+              </label>
+
+              {schedEnabled && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                      Recurring Scan Interval
+                    </label>
+                    <select
+                      value={schedInterval}
+                      onChange={(e) => setSchedInterval(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        background: "var(--bg-2)",
+                        border: "1px solid var(--line)",
+                        color: "var(--text)",
+                        borderRadius: 6,
+                        fontSize: "0.88rem",
+                      }}
+                    >
+                      <option value={12}>Every 12 Hours (Twice Daily)</option>
+                      <option value={24}>Every 24 Hours (Daily)</option>
+                      <option value={48}>Every 48 Hours (Every 2 Days)</option>
+                      <option value={168}>Every 168 Hours (Weekly)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.82rem", color: "var(--color-text-muted)", marginBottom: 6 }}>
+                      Target Authorization Guardrail
+                    </label>
+                    <div style={{ fontSize: "0.85rem", color: (target.authorization_status || "").toUpperCase() === "AUTHORIZED" ? "#3ee0a2" : "#ffa726" }}>
+                      {(target.authorization_status || "").toUpperCase() === "AUTHORIZED"
+                        ? "✓ Verified & Authorized for Automated Scanning"
+                        : "⚠️ Target Pending Authorization (Authorize first to enable active scans)"}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Button type="submit" tone="primary" disabled={schedSaving}>
+                {schedSaving ? "Saving Schedule..." : "Save Scan Schedule"}
+              </Button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* AI Copilot Drawer */}

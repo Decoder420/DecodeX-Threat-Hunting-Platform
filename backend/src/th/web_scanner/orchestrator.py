@@ -749,6 +749,31 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
         _emit("web_scan_completed", done)
         _emit("webscan_completed", done)
         log("SCAN", f"Scan {scan.status.lower()} with {scan.findings_count} findings / {scan.nodes_count} nodes")
+
+        # Dispatch webhook notification on scan completion
+        try:
+            from ..webhook_dispatcher import dispatch_webhook_event
+            sev = "CRITICAL" if counts["CRITICAL"] > 0 else "HIGH" if counts["HIGH"] > 0 else "MEDIUM" if counts["MEDIUM"] > 0 else "INFO"
+            dispatch_webhook_event(
+                event_type="scan.completed",
+                severity=sev,
+                title=f"DAST Scan Completed: {target.name}",
+                description=f"Scan #{scan.id} finished on {target.url} with {scan.findings_count} finding(s) (Risk Score: {scan.risk_score}/100).",
+                source=target.url,
+                details={
+                    "scan_id": scan.id,
+                    "target_name": target.name,
+                    "target_url": target.url,
+                    "critical_count": counts["CRITICAL"],
+                    "high_count": counts["HIGH"],
+                    "medium_count": counts["MEDIUM"],
+                    "low_count": counts["LOW"],
+                    "risk_score": scan.risk_score,
+                    "duration_seconds": scan.duration,
+                },
+            )
+        except Exception as wh_exc:
+            logger.debug("Failed dispatching scan webhook: %s", wh_exc)
     except SSRFError as exc:
         _fail_scan(db, scan_id, f"SSRF/validation blocked: {exc}")
     except Exception as exc:
