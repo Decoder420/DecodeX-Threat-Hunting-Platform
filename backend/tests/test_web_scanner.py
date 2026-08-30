@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ SRC_ROOT = BACKEND_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-_tmp = tempfile.TemporaryDirectory(prefix="th_webscan_", ignore_cleanup_errors=True)
+_tmp_dir = tempfile.mkdtemp(prefix="th_webscan_")
 os.environ["TH_ADMIN_USERNAME"] = "admin"
 os.environ["TH_ADMIN_PASSWORD"] = "AdminPass123!"
 os.environ["TH_ANALYST_USERNAME"] = "analyst"
@@ -28,7 +29,7 @@ os.environ.pop("DATABASE_URL", None)
 
 from th import db as dbmod  # noqa: E402
 
-dbmod.DATABASE_PATH = Path(_tmp.name) / "test_webscan.db"
+dbmod.DATABASE_PATH = Path(_tmp_dir) / "test_webscan.db"
 dbmod.engine = dbmod.create_engine(
     f"sqlite:///{dbmod.DATABASE_PATH}",
     connect_args={"check_same_thread": False, "timeout": 30},
@@ -153,6 +154,19 @@ class WebScanApiTests(unittest.TestCase):
         cls.client = app.test_client()
         with app.app_context():
             get_db()
+        cls._real_getaddrinfo = socket.getaddrinfo
+
+        def _mock_getaddrinfo(host, port, *args, **kwargs):
+            if host in ("example.com", "example.org"):
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 0))]
+            return cls._real_getaddrinfo(host, port, *args, **kwargs)
+
+        cls._dns_patcher = patch("socket.getaddrinfo", side_effect=_mock_getaddrinfo)
+        cls._dns_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._dns_patcher.stop()
 
     def _login(self, username="admin", password="AdminPass123!"):
         res = self.client.post(

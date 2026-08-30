@@ -180,6 +180,100 @@ class AuthRbacTests(unittest.TestCase):
             self.assertTrue(user_has_permission(viewer, "alerts.read"))
             self.assertFalse(user_has_permission(viewer, "alerts.write"))
 
+    def test_change_password_success_and_revokes_old_sessions(self):
+        login_res = self._login("analyst", "AnalystPass123!")
+        old_token = login_res.get_json()["token"]
+
+        # Change password
+        res = self.client.post(
+            "/api/auth/change_password",
+            json={"current_password": "AnalystPass123!", "new_password": "NewSecretPass456!"},
+            headers=self._auth_header(old_token),
+        )
+        self.assertEqual(res.status_code, 200)
+        body = res.get_json()
+        self.assertTrue(body["success"])
+        new_token = body["token"]
+
+        # Old token must now be invalid
+        me_old = self.client.get("/api/auth/me", headers=self._auth_header(old_token))
+        self.assertEqual(me_old.status_code, 401)
+
+        # New token works
+        me_new = self.client.get("/api/auth/me", headers=self._auth_header(new_token))
+        self.assertEqual(me_new.status_code, 200)
+
+        # Can login with new password
+        login_new = self._login("analyst", "NewSecretPass456!")
+        self.assertEqual(login_new.status_code, 200)
+
+        # Restore original password for other tests
+        self.client.post(
+            "/api/auth/change_password",
+            json={"current_password": "NewSecretPass456!", "new_password": "AnalystPass123!"},
+            headers=self._auth_header(login_new.get_json()["token"]),
+        )
+
+    def test_change_password_wrong_current_password(self):
+        token = self._login("viewer", "ViewerPass123!").get_json()["token"]
+        res = self.client.post(
+            "/api/auth/change_password",
+            json={"current_password": "WrongPassword!", "new_password": "NewViewerPass123!"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(res.status_code, 401)
+        self.assertEqual(res.get_json()["error"]["code"], "UNAUTHORIZED")
+
+    def test_change_password_short_password(self):
+        token = self._login("viewer", "ViewerPass123!").get_json()["token"]
+        res = self.client.post(
+            "/api/auth/change_password",
+            json={"current_password": "ViewerPass123!", "new_password": "short"},
+            headers=self._auth_header(token),
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.get_json()["error"]["code"], "BAD_REQUEST")
+
+    def test_admin_reset_password_revokes_sessions(self):
+        admin_token = self._login("admin", "AdminPass123!").get_json()["token"]
+        viewer_token = self._login("viewer", "ViewerPass123!").get_json()["token"]
+
+        with app.app_context():
+            viewer = get_db().query(User).filter_by(username="viewer").first()
+            viewer_id = viewer.id
+
+        # Admin resets viewer password
+        res = self.client.post(
+            f"/api/admin/users/{viewer_id}/reset_password",
+            json={"password": "ResetViewerPass789!"},
+            headers=self._auth_header(admin_token),
+        )
+        self.assertEqual(res.status_code, 200)
+
+        # Viewer session is immediately revoked
+        me = self.client.get("/api/auth/me", headers=self._auth_header(viewer_token))
+        self.assertEqual(me.status_code, 401)
+
+        # Viewer can log in with new password
+        login_new = self._login("viewer", "ResetViewerPass789!")
+        self.assertEqual(login_new.status_code, 200)
+
+        # Restore original password
+        self.client.post(
+            f"/api/admin/users/{viewer_id}/reset_password",
+            json={"password": "ViewerPass123!"},
+            headers=self._auth_header(admin_token),
+        )
+
+    def test_consistent_error_structure(self):
+        res = self.client.get("/api/auth/me")
+        body = res.get_json()
+        self.assertIn("error", body)
+        self.assertIn("code", body["error"])
+        self.assertIn("message", body["error"])
+        self.assertIn("details", body["error"])
+        self.assertFalse(body.get("success", True))
+
 
 if __name__ == "__main__":
     unittest.main()
