@@ -40,11 +40,13 @@ from .enterprise_api import register_enterprise_routes
 from .log_watcher import start_log_watcher
 from .web_scanner import set_broadcast as set_webscan_broadcast
 from .logging_config import configure_structured_logging
+from .rules_api import sigma_rules_bp
 
 configure_structured_logging()
 
 app = Flask(__name__)
 app.teardown_appcontext(close_db)
+app.register_blueprint(sigma_rules_bp)
 
 # CORS: restrict to known frontend origins strictly from ALLOWED_ORIGINS env var.
 _allowed_origins_str = os.environ.get(

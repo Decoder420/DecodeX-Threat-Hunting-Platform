@@ -16,6 +16,16 @@ class RuleEvaluator:
         self.rule_file_path = path
         self.rules = payload.get("rules", [])
 
+        # Seamlessly load any custom rules deployed via Detection Engineering Studio
+        custom_path = path.parent / "custom_rules.yml"
+        if custom_path.exists():
+            try:
+                with custom_path.open("r", encoding="utf-8") as custom_handle:
+                    custom_payload = yaml.safe_load(custom_handle) or {}
+                    self.rules.extend(custom_payload.get("rules", []))
+            except Exception:
+                pass
+
     def evaluate(
         self,
         event,
@@ -62,11 +72,21 @@ class RuleEvaluator:
         for condition in rule.get("conditions", []):
             ctype = condition["type"]
 
-            if ctype == "event_field_contains":
+            if ctype in ("event_field_contains", "event_field_contains_any"):
                 field = condition["field"]
-                value = condition["value"]
-                if value.lower() not in (getattr(event, field, "") or "").lower():
-                    return False
+                target_text = (getattr(event, field, "") or "").lower()
+                vals = condition.get("values")
+                if vals is not None:
+                    if not any(str(v).lower() in target_text for v in vals):
+                        return False
+                else:
+                    val = condition.get("value")
+                    if isinstance(val, list):
+                        if not any(str(v).lower() in target_text for v in val):
+                            return False
+                    else:
+                        if str(val).lower() not in target_text:
+                            return False
             elif ctype == "ioc_ip_match":
                 if getattr(event, "ip", "") not in ioc_ips:
                     return False

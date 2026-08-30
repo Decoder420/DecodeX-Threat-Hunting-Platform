@@ -141,5 +141,11 @@ export const activateUser = (userId) =>
 export const resetUserPassword = (userId, password) =>
   api.post(`/admin/users/${userId}/reset_password`, { password });
 
-// 2. The duplicate 'export { API_BASE_URL };' is removed from here!
+// --- Detection Engineering & Sigma Rule Studio APIs ---
+export const listSigmaRules = () => api.get("/sigma/rules");
+export const validateSigmaRule = (yaml) => api.post("/sigma/rules/validate", { yaml });
+export const testSigmaRule = (payload) => api.post("/sigma/rules/test", payload);
+export const saveSigmaRule = (yaml) => api.post("/sigma/rules/save", { yaml });
+export const getMitreMatrix = () => api.get("/sigma/mitre-matrix");
+
 export default api;

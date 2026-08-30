@@ -3,6 +3,8 @@ import api, { uploadLogFile, purgeEvents, getDatabaseMaintenance, vacuumDatabase
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
 import { hasPermission } from "../auth";
+import SigmaRuleStudio from "../components/SigmaRuleStudio";
+import MitreAttackMatrix from "../components/MitreAttackMatrix";
 
 const HUNT_PLAYBOOKS = [
   {
@@ -52,6 +54,10 @@ export default function HuntingPage() {
   const [dbStats, setDbStats] = useState(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
+
+  // Detection Engineering Navigation
+  const [activeTab, setActiveTab] = useState("events"); // "events", "studio", "matrix"
+  const [studioInitialYaml, setStudioInitialYaml] = useState("");
 
   const canWrite = hasPermission("events.write");
 
@@ -239,25 +245,142 @@ export default function HuntingPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {canWrite ? (
+          {activeTab === "events" && canWrite ? (
             <Button size="sm" variant="primary" onClick={() => { setShowUploadModal(true); setUploadResult(null); setUploadError(""); }}>
               📤 Upload Log File (JSON)
             </Button>
           ) : null}
-          {canWrite ? (
+          {activeTab === "events" && canWrite ? (
             <Button size="sm" onClick={openMaintenanceModal} title="Database Health and Log Purging">
               🧹 DB Health &amp; Cleanup
             </Button>
           ) : null}
-          <Button size="sm" onClick={() => load(q)}>
-            ↻ Refresh
-          </Button>
-          <Button size="sm" onClick={exportCsv} disabled={!events.length}>
-            📥 Export CSV
-          </Button>
+          {activeTab === "events" ? (
+            <>
+              <Button size="sm" onClick={() => load(q)}>
+                ↻ Refresh
+              </Button>
+              <Button size="sm" onClick={exportCsv} disabled={!events.length}>
+                📥 Export CSV
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
 
+      {/* Detection Engineering & Threat Hunting Sub-Tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          borderBottom: "1px solid var(--line)",
+          paddingBottom: 14,
+          marginBottom: 20,
+          marginTop: 18,
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab("events")}
+          style={{
+            background: activeTab === "events" ? "var(--accent, #3ee0a2)" : "var(--bg-2)",
+            color: activeTab === "events" ? "#000" : "var(--text)",
+            border: activeTab === "events" ? "none" : "1px solid var(--line)",
+            fontWeight: 700,
+            fontSize: "0.85rem",
+            padding: "8px 16px",
+            borderRadius: 8,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            transition: "all 0.15s ease",
+          }}
+        >
+          🔍 Event Explorer &amp; Playbooks
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("studio")}
+          style={{
+            background: activeTab === "studio" ? "var(--accent, #3ee0a2)" : "var(--bg-2)",
+            color: activeTab === "studio" ? "#000" : "var(--text)",
+            border: activeTab === "studio" ? "none" : "1px solid var(--line)",
+            fontWeight: 700,
+            fontSize: "0.85rem",
+            padding: "8px 16px",
+            borderRadius: 8,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            transition: "all 0.15s ease",
+          }}
+        >
+          ⚡ Sigma Rule Studio &amp; Live Tester
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("matrix")}
+          style={{
+            background: activeTab === "matrix" ? "var(--accent, #3ee0a2)" : "var(--bg-2)",
+            color: activeTab === "matrix" ? "#000" : "var(--text)",
+            border: activeTab === "matrix" ? "none" : "1px solid var(--line)",
+            fontWeight: 700,
+            fontSize: "0.85rem",
+            padding: "8px 16px",
+            borderRadius: 8,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            transition: "all 0.15s ease",
+          }}
+        >
+          🎯 MITRE ATT&amp;CK Matrix
+        </button>
+      </div>
+
+      {/* TAB 2: SIGMA RULE STUDIO */}
+      {activeTab === "studio" && (
+        <SigmaRuleStudio
+          initialRuleYaml={studioInitialYaml}
+          onNavigateToMatrix={() => setActiveTab("matrix")}
+        />
+      )}
+
+      {/* TAB 3: MITRE ATT&CK MATRIX */}
+      {activeTab === "matrix" && (
+        <MitreAttackMatrix
+          onSelectTechniqueForStudio={(tech) => {
+            const yamlTemplate = `title: Custom Detection for ${tech.name}
+id: sigma_custom_${tech.id.toLowerCase().replace(/[^a-z0-9]/g, "_")}
+status: experimental
+description: Custom threat detection rule for MITRE ATT&CK technique ${tech.id} (${tech.name})
+level: high
+tags:
+    - attack.${(tech.tactic_name || "execution").toLowerCase().replace(/\\s+/g, "_")}
+    - attack.${tech.id.toLowerCase()}
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        process: cmd.exe
+        commandline:
+            - "${tech.id.toLowerCase()}"
+    condition: selection
+`;
+            setStudioInitialYaml(yamlTemplate);
+            setActiveTab("studio");
+          }}
+        />
+      )}
+
+      {/* TAB 1: EVENT EXPLORER & PLAYBOOKS */}
+      {activeTab === "events" && (
+        <>
       {/* HUNTING PLAYBOOKS */}
       <div className="surface" style={{ padding: 14, marginBottom: 16 }}>
         <div className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase", marginBottom: 8 }}>
@@ -437,6 +560,8 @@ export default function HuntingPage() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* EVENT DETAIL INSPECTOR MODAL */}
       {selectedEvent ? (
