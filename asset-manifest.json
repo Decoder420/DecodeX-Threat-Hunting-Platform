@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/Threat-Hunting-Platform/static/css/main.68b8e5b2.css",
-    "main.js": "/Threat-Hunting-Platform/static/js/main.0bb88c19.js",
-    "static/js/453.d5d0486c.chunk.js": "/Threat-Hunting-Platform/static/js/453.d5d0486c.chunk.js",
-    "index.html": "/Threat-Hunting-Platform/index.html",
-    "main.68b8e5b2.css.map": "/Threat-Hunting-Platform/static/css/main.68b8e5b2.css.map",
-    "main.0bb88c19.js.map": "/Threat-Hunting-Platform/static/js/main.0bb88c19.js.map",
-    "453.d5d0486c.chunk.js.map": "/Threat-Hunting-Platform/static/js/453.d5d0486c.chunk.js.map"
+    "main.css": "/DecodeX-Threat-Hunting-Platform/static/css/main.0fefdfc1.css",
+    "main.js": "/DecodeX-Threat-Hunting-Platform/static/js/main.18c90425.js",
+    "static/js/453.7205d2c8.chunk.js": "/DecodeX-Threat-Hunting-Platform/static/js/453.7205d2c8.chunk.js",
+    "index.html": "/DecodeX-Threat-Hunting-Platform/index.html",
+    "main.0fefdfc1.css.map": "/DecodeX-Threat-Hunting-Platform/static/css/main.0fefdfc1.css.map",
+    "main.18c90425.js.map": "/DecodeX-Threat-Hunting-Platform/static/js/main.18c90425.js.map",
+    "453.7205d2c8.chunk.js.map": "/DecodeX-Threat-Hunting-Platform/static/js/453.7205d2c8.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.68b8e5b2.css",
-    "static/js/main.0bb88c19.js"
+    "static/css/main.0fefdfc1.css",
+    "static/js/main.18c90425.js"
   ]
 }
