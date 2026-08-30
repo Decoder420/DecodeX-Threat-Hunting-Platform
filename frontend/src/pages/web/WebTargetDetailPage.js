@@ -7,6 +7,7 @@ import Button from "../../components/ui/Button";
 import AiTriageDrawer from "../../components/AiTriageDrawer";
 import AttackBlastRadiusGraph from "../../components/AttackBlastRadiusGraph";
 import { hasPermission } from "../../auth";
+import { renderScanStatusBadge } from "./WebScansPage";
 
 export default function WebTargetDetailPage() {
   const { targetId } = useParams();
@@ -65,14 +66,17 @@ export default function WebTargetDetailPage() {
   const handleAuthorize = async () => {
     if (!cockpit?.target) return;
     const ok = window.confirm(
-      `Confirm explicit authorization to scan ${cockpit.target.name} (${cockpit.target.url})?`
+      `Confirm explicit authorization to scan ${cockpit.target.name} (${cockpit.target.url})?\n\n` +
+        "Only confirm if you have explicit permission to assess this asset."
     );
     if (!ok) return;
     try {
       await webApi.authorizeTarget(cockpit.target.id);
+      window.alert(`✓ Target "${cockpit.target.name}" is now AUTHORIZED and ready for scanning!`);
       await loadCockpit();
-    } catch {
-      window.alert("Failed to authorize target.");
+    } catch (err) {
+      const msg = err.response?.data?.error?.message || err.message || "Failed to authorize target.";
+      window.alert(`Authorization failed: ${msg}`);
     }
   };
 
@@ -531,9 +535,7 @@ export default function WebTargetDetailPage() {
                       <td><code>WAS-#{s.id}</code></td>
                       <td><b>{s.scan_profile}</b></td>
                       <td>
-                        <Badge tone={s.status === "COMPLETED" ? "ok" : s.status === "FAILED" ? "danger" : "warn"}>
-                          {s.status}
-                        </Badge>
+                        {renderScanStatusBadge(s)}
                       </td>
                       <td>{s.findings_count} findings</td>
                       <td style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>

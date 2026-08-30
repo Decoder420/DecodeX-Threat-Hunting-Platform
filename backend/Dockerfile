@@ -35,6 +35,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir safety
 
 COPY . .
+RUN pip install --no-cache-dir -e .
 
 EXPOSE 5000
 

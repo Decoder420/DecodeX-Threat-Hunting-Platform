@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .db import utcnow
+
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "decodex_transparent.png"
 
 from reportlab.lib import colors
@@ -374,7 +376,7 @@ def build_scan_context(db, scan, *, prepared_by: str = "Manan Mandal") -> dict:
     else:
         overall_sev = "INFO"
 
-    year = (scan.started_at or scan.created_at or datetime.utcnow()).year
+    year = (scan.started_at or scan.created_at or utcnow()).year
     report_id = f"WAS-{year}-{int(scan.id):03d}"
 
     import json
@@ -411,7 +413,7 @@ def build_scan_context(db, scan, *, prepared_by: str = "Manan Mandal") -> dict:
         "discovered_urls": getattr(scan, "discovered_urls", 0) or 0,
         "discovered_ports": getattr(scan, "discovered_ports", 0) or len(ports),
         "started_at": scan.started_at or scan.created_at,
-        "finished_at": scan.finished_at or datetime.utcnow(),
+        "finished_at": scan.finished_at or utcnow(),
         "prepared_by": prepared_by,
         "ports": ports,
         "technologies": tech,

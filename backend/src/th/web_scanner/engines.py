@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,6 +19,7 @@ from .config import (
     NMAP_PATH,
     NUCLEI_ENABLED,
     NUCLEI_PATH,
+    WEBSCAN_ALLOW_PRIVATE_TARGETS,
     WEBSCAN_TIMEOUT,
     ZAP_API_KEY,
     ZAP_ENABLED,
@@ -48,28 +50,14 @@ def _which(path: str) -> str | None:
 
 
 def detect_engines() -> dict:
+    from .zap_client import zap_client
+
     nuclei = _which(NUCLEI_PATH) if NUCLEI_ENABLED else None
     nmap = _which(NMAP_PATH) if NMAP_ENABLED else None
-    zap_ok = False
-    zap_version = ""
-    if ZAP_ENABLED:
-        try:
-            headers = {"X-ZAP-API-Key": ZAP_API_KEY} if ZAP_API_KEY else {}
-            params = {"apikey": ZAP_API_KEY} if ZAP_API_KEY else {}
-            r = requests.get(
-                f"{ZAP_URL}/JSON/core/view/version/",
-                headers=headers,
-                params=params,
-                timeout=3,
-            )
-            if r.ok:
-                zap_ok = True
-                zap_version = str((r.json() or {}).get("version") or "")
-            else:
-                logger.warning("ZAP version probe returned HTTP %s: %s", r.status_code, r.text)
-        except Exception as exc:
-            logger.debug("ZAP probe failed: %s", exc)
-            zap_ok = False
+    zap_health = zap_client.health_check() if ZAP_ENABLED else {"available": False, "version": "", "capabilities": {}, "addons": []}
+    zap_ok = zap_health.get("available", False)
+    zap_version = zap_health.get("version", "")
+
     return {
         "builtin": {"installed": True, "version": "2.0", "status": "READY", "path": "builtin"},
         "httpx": {
@@ -100,6 +88,8 @@ def detect_engines() -> dict:
             "status": "READY" if zap_ok else ("DISABLED" if not ZAP_ENABLED else "NOT_INSTALLED"),
             "path": ZAP_URL,
             "enabled": ZAP_ENABLED,
+            "capabilities": zap_health.get("capabilities", {}),
+            "addons": zap_health.get("addons", []),
         },
     }
 
@@ -272,135 +262,119 @@ def run_nmap(hostname: str, *, timeout: int | None = None) -> tuple[list[dict], 
     return findings, ports, None
 
 
-def run_zap_passive(url: str, *, timeout: int = 60) -> tuple[list[dict], list[str], str | None]:
-    """ZAP spider + passive inspection via ZAP REST API. Non-destructive."""
+def run_zap_passive(
+    url: str,
+    *,
+    timeout: int = 60,
+    cancel_check: callable = None,
+    progress_callback: callable = None,
+    allow_private: bool = WEBSCAN_ALLOW_PRIVATE_TARGETS,
+    auth_type: str = "none",
+    auth_config: dict | None = None,
+) -> tuple[list[dict], list[str], str | None]:
+    """ZAP spider + passive inspection via ZAP REST API with scope isolation. Non-destructive."""
+    from .zap_client import zap_client
+
     if not ZAP_ENABLED:
         return [], [], "ZAP disabled by configuration"
-    try:
-        headers = {"X-ZAP-API-Key": ZAP_API_KEY} if ZAP_API_KEY else {}
-        params = {"apikey": ZAP_API_KEY} if ZAP_API_KEY else {}
 
-        # 1. Access URL (seeds ZAP site tree)
-        r_access = requests.get(
-            f"{ZAP_URL}/JSON/core/action/accessUrl/",
-            headers=headers,
-            params={**params, "url": url, "followRedirects": "true"},
-            timeout=15,
+    health = zap_client.health_check()
+    if not health.get("available"):
+        return [], [], f"ZAP daemon unreachable: {health.get('error')}"
+
+    # 1. Create scoped context for target
+    parsed = urlparse(url)
+    context_name = f"ctx_{parsed.hostname or 'target'}_{int(time.time())}"
+    zap_client.create_target_context(context_name, url)
+
+    # Configure authentication if target has credentials
+    if auth_type and auth_type != "none" and auth_config:
+        zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url)
+
+    # 2. Traditional Spider
+    spider_urls, err = zap_client.run_spider(
+        url,
+        context_name=context_name,
+        max_children=50,
+        timeout=timeout,
+        cancel_check=cancel_check,
+        progress_callback=progress_callback,
+        allow_private=allow_private,
+    )
+    if err and "cancelled" in err.lower():
+        return [], spider_urls, err
+
+    # 3. AJAX Spider (if supported)
+    if health.get("capabilities", {}).get("ajax_spider"):
+        ajax_urls, _ajax_err = zap_client.run_ajax_spider(
+            url,
+            context_name=context_name,
+            timeout=min(timeout, 45),
+            cancel_check=cancel_check,
+            allow_private=allow_private,
         )
-        if not r_access.ok and r_access.status_code == 403:
-            return [], [], "ZAP API Access Denied (check ZAP api.key and network whitelist config)"
+        for u in ajax_urls:
+            if u not in spider_urls:
+                spider_urls.append(u)
 
-        # 2. Spider site & extract site tree URLs
-        spider_urls: list[str] = []
-        spider = requests.get(
-            f"{ZAP_URL}/JSON/spider/action/scan/",
-            headers=headers,
-            params={**params, "url": url, "maxChildren": "50", "recurse": "true"},
-            timeout=15,
-        )
-        if spider.ok:
-            scan_id = (spider.json() or {}).get("scan")
-            import time
-            deadline = time.time() + min(timeout, 45)
-            while time.time() < deadline and scan_id is not None:
-                st = requests.get(
-                    f"{ZAP_URL}/JSON/spider/view/status/",
-                    headers=headers,
-                    params={**params, "scanId": scan_id},
-                    timeout=5,
-                )
-                if st.ok and str((st.json() or {}).get("status")) == "100":
-                    break
-                time.sleep(1.5)
+    # 4. Drain passive scanner queue
+    zap_client.wait_for_passive_scan(timeout=15, cancel_check=cancel_check)
 
-            if scan_id is not None:
-                try:
-                    res_sp = requests.get(
-                        f"{ZAP_URL}/JSON/spider/view/results/",
-                        headers=headers,
-                        params={**params, "scanId": scan_id},
-                        timeout=10,
-                    )
-                    if res_sp.ok:
-                        for item in (res_sp.json() or {}).get("results") or []:
-                            if isinstance(item, str) and item.startswith("http"):
-                                spider_urls.append(item)
-                except Exception:
-                    pass
+    # 5. Fetch normalized findings
+    findings, alert_err = zap_client.fetch_normalized_alerts(url)
+    return findings, spider_urls, alert_err
 
-        # Also query all discovered URLs from ZAP core view
-        try:
-          res_core = requests.get(
-              f"{ZAP_URL}/JSON/core/view/urls/",
-              headers=headers,
-              params={**params, "baseurl": url},
-              timeout=10,
-          )
-          if res_core.ok:
-              for u in (res_core.json() or {}).get("urls") or []:
-                  if isinstance(u, str) and u.startswith("http") and u not in spider_urls:
-                      spider_urls.append(u)
-        except Exception:
-          pass
 
-        # 3. Fetch Passive Scan Alerts with fallback for trailing slash variations
-        alerts_data = []
-        for base in [url, url.rstrip("/"), f"{url.rstrip('/')}/"]:
-            alerts_resp = requests.get(
-                f"{ZAP_URL}/JSON/alert/view/alerts/",
-                headers=headers,
-                params={**params, "baseurl": base, "start": "0", "count": "100"},
-                timeout=15,
-            )
-            if alerts_resp.ok:
-                items = (alerts_resp.json() or {}).get("alerts") or []
-                if items:
-                    alerts_data = items
-                    break
+def run_zap_active(
+    url: str,
+    *,
+    timeout: int = 120,
+    delay_ms: int = 100,
+    cancel_check: callable = None,
+    progress_callback: callable = None,
+    allow_private: bool = WEBSCAN_ALLOW_PRIVATE_TARGETS,
+    auth_type: str = "none",
+    auth_config: dict | None = None,
+    policy: str | None = None,
+    alert_threshold: str | None = None,
+    attack_strength: str | None = None,
+) -> tuple[list[dict], str | None]:
+    """ZAP active scan against authorized target with rate limiting, policies, and scope guardrails."""
+    from .zap_client import zap_client
 
-        if not alerts_data:
-            # Query session alerts and filter by hostname
-            alerts_all = requests.get(
-                f"{ZAP_URL}/JSON/alert/view/alerts/",
-                headers=headers,
-                params={**params, "start": "0", "count": "50"},
-                timeout=10,
-            )
-            if alerts_all.ok:
-                parsed_target = urlparse(url)
-                target_host = (parsed_target.netloc or parsed_target.hostname or "").lower()
-                all_items = (alerts_all.json() or {}).get("alerts") or []
-                alerts_data = [a for a in all_items if target_host in (a.get("url") or "").lower()]
+    if not ZAP_ENABLED:
+        return [], "ZAP disabled by configuration"
 
-        findings = []
-        sev_map = {
-            "INFORMATIONAL": "INFO",
-            "INFO": "INFO",
-            "LOW": "LOW",
-            "MEDIUM": "MEDIUM",
-            "HIGH": "HIGH",
-            "CRITICAL": "CRITICAL",
-        }
-        for a in alerts_data:
-            risk = str(a.get("risk") or "Informational").upper()
-            findings.append({
-                "title": a.get("alert") or a.get("name") or "ZAP finding",
-                "description": (a.get("description") or "")[:2000],
-                "severity": sev_map.get(risk, "INFO"),
-                "confidence": 75,
-                "category": "zap",
-                "cwe": str(a.get("cweid") or ""),
-                "cve": "",
-                "evidence": (a.get("evidence") or a.get("other") or "")[:2000],
-                "recommendation": (a.get("solution") or "Review ZAP guidance.")[:2000],
-                "affected_url": a.get("url") or url,
-                "source_engine": "zap",
-                "method": a.get("method") or "GET",
-                "parameter": a.get("param") or "",
-            })
-        return findings, spider_urls, None
-    except Exception as exc:
-        logger.debug("ZAP passive execution failed: %s", exc)
-        return [], [], f"ZAP unavailable: {exc}"
+    health = zap_client.health_check()
+    if not health.get("available"):
+        return [], f"ZAP daemon unreachable: {health.get('error')}"
+
+    parsed = urlparse(url)
+    context_name = f"ascan_{parsed.hostname or 'target'}_{int(time.time())}"
+    context_id = zap_client.create_target_context(context_name, url)
+
+    # Configure authentication if target has credentials
+    if auth_type and auth_type != "none" and auth_config:
+        zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url)
+
+    # Run active scan with policy and threshold settings
+    _status, err = zap_client.run_active_scan(
+        url,
+        context_id=context_id,
+        delay_ms=delay_ms,
+        timeout=timeout,
+        cancel_check=cancel_check,
+        progress_callback=progress_callback,
+        allow_private=allow_private,
+        policy=policy,
+        alert_threshold=alert_threshold,
+        attack_strength=attack_strength,
+    )
+    if err and "cancelled" in err.lower():
+        return [], err
+
+    # Fetch alerts discovered during active scan
+    findings, alert_err = zap_client.fetch_normalized_alerts(url)
+    return findings, alert_err or err
 
 
