@@ -38,19 +38,21 @@ from .audit import write_audit
 from .enterprise_api import register_enterprise_routes
 from .log_watcher import start_log_watcher
 from .web_scanner import set_broadcast as set_webscan_broadcast
+from .logging_config import configure_structured_logging
+
+configure_structured_logging()
 
 app = Flask(__name__)
 app.teardown_appcontext(close_db)
 
-# CORS: restrict to known frontend origins.
+# CORS: restrict to known frontend origins strictly from ALLOWED_ORIGINS env var.
 _allowed_origins_str = os.environ.get(
     "ALLOWED_ORIGINS",
     "http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
 )
 _allowed_origins = [o.strip() for o in _allowed_origins_str.split(",") if o.strip()]
-_allowed_origins.append(re.compile(r"https?://.*\.ngrok-free\.app"))
 
-# FIX: Expanded CORS to cover ALL routes (r"/*") to ensure Web Security pages load.
+# Expanded CORS to cover ALL routes (r"/*") using explicit allowed origins
 CORS(
     app,
     resources={r"/*": {"origins": _allowed_origins}},

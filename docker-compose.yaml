@@ -4,9 +4,9 @@ services:
     container_name: zap_scanner
     ports:
       - "8080:8080"
-    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=ufmqbdsum4iqindh6jaququfso -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=${ZAP_API_KEY:?ZAP_API_KEY must be set in .env} -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/json/core/view/version?apikey=ufmqbdsum4iqindh6jaququfso"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/json/core/view/version?apikey=${ZAP_API_KEY:?ZAP_API_KEY must be set in .env}"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -20,12 +20,15 @@ services:
       dockerfile: Dockerfile
     container_name: threat_hunt_backend
     environment:
-      # ... your existing environment variables ...
-      - TH_ADMIN_PASSWORD=Manan@123
-      - WEBSCAN_ALLOW_PRIVATE_TARGETS=true
+      # Secrets sourced from environment / .env (never hardcoded in committed compose files)
+      - TH_ADMIN_PASSWORD=${TH_ADMIN_PASSWORD:-ChangeMe_Admin_Password123!}
+      # SECURITY WARNING: Setting to true permits scanning RFC1918 / localhost / internal IP ranges (SSRF risk).
+      # Shipped as false by default. Explicit opt-in via WEBSCAN_ALLOW_PRIVATE_TARGETS=true in .env for isolated lab use only.
+      - WEBSCAN_ALLOW_PRIVATE_TARGETS=${WEBSCAN_ALLOW_PRIVATE_TARGETS:-false}
       - ZAP_ENABLED=true
       - ZAP_URL=http://zap:8080
-      - ZAP_API_KEY=ufmqbdsum4iqindh6jaququfso
+      - ZAP_API_KEY=${ZAP_API_KEY:?ZAP_API_KEY must be set in .env}
+      - SQLITE_JOURNAL_MODE=DELETE
       - EVENTLET_NO_GREENDNS=yes
       - HOST=0.0.0.0
       - ALLOWED_ORIGINS=http://localhost
