@@ -2,6 +2,7 @@ import os
 os.environ.setdefault("EVENTLET_NO_GREENDNS", "yes")
 import time 
 import re
+import threading
 from datetime import datetime, timedelta
 
 from functools import wraps
@@ -63,7 +64,7 @@ CORS(
 
 socketio = SocketIO(
     app,
-    cors_allowed_origins=_allowed_origins + ["*"],  # Allow all origins for development
+    cors_allowed_origins=_allowed_origins,
     async_mode="threading",
     ping_timeout=60,
     ping_interval=25,
@@ -73,9 +74,85 @@ socketio = SocketIO(
 
 RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
 
+# --- SYSTEM HEALTH & MONITORING ---
+@app.route("/api/health")
+def health():
+    """System health check endpoint for uptime monitors, orchestrator liveness probes, and load balancers."""
+    from sqlalchemy import text
+    t0 = time.time()
+    db_ok = False
+    db_latency_ms = 0.0
+    try:
+        db = get_db()
+        db.execute(text("SELECT 1"))
+        db_ok = True
+        db_latency_ms = round((time.time() - t0) * 1000, 2)
+    except Exception as exc:
+        db_ok = False
+        db_latency_ms = round((time.time() - t0) * 1000, 2)
+
+    # Engine reachability
+    zap_status = {"available": False, "version": ""}
+    try:
+        from .web_scanner import zap_client
+        zh = zap_client.health_check()
+        zap_status = {"available": zh.get("available", False), "version": zh.get("version", "")}
+    except Exception:
+        pass
+
+    from .log_watcher import get_watcher_status
+    watcher_info = get_watcher_status()
+
+    is_healthy = db_ok
+    status_code = 200 if is_healthy else 503
+    return jsonify({
+        "status": "healthy" if is_healthy else "degraded",
+        "timestamp": utcnow().isoformat(),
+        "database": {
+            "status": "connected" if db_ok else "disconnected",
+            "latency_ms": db_latency_ms,
+        },
+        "engines": {
+            "builtin": {"available": True, "version": "2.0"},
+            "zap": zap_status,
+        },
+        "background_services": {
+            "log_watcher": watcher_info,
+        },
+    }), status_code
+
+
+# --- AUTHENTICATION RATE LIMITING ---
+# Note: Counter is in-memory per worker process; effective cluster limit scales with Gunicorn worker count.
+_login_rate_limits: dict[str, list[float]] = {}
+_login_rate_lock = threading.Lock()
+AUTH_RATE_LIMIT_MAX = int(os.environ.get("AUTH_RATE_LIMIT_MAX", "30"))  # 30 attempts
+AUTH_RATE_LIMIT_WINDOW = int(os.environ.get("AUTH_RATE_LIMIT_WINDOW", "60"))  # 60s window
+
+
+def _check_login_rate_limit(client_ip: str) -> tuple[bool, int]:
+    now = time.time()
+    with _login_rate_lock:
+        window_start = now - AUTH_RATE_LIMIT_WINDOW
+        attempts = [t for t in _login_rate_limits.get(client_ip, []) if t > window_start]
+        if len(attempts) >= AUTH_RATE_LIMIT_MAX:
+            retry_after = int(attempts[0] + AUTH_RATE_LIMIT_WINDOW - now) + 1
+            return False, max(1, retry_after)
+        attempts.append(now)
+        _login_rate_limits[client_ip] = attempts
+        return True, 0
+
+
 # --- AUTHENTICATION ---
-def api_error(code: str, message: str, status: int):
-    return jsonify({"error": {"code": code, "message": message}}), status
+def api_error(code: str, message: str, status: int = 400, details: dict | None = None):
+    return jsonify({
+        "success": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details or {},
+        }
+    }), status
 
 def login_required(f):
     @wraps(f)
@@ -101,12 +178,15 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def require_permission(permission: str):
+def require_permission(perm: str):
     def decorator(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            if not user_has_permission(g.current_user, permission):
-                return api_error("FORBIDDEN", f"You do not have permission to perform this action ({permission}).", 403)
+            if request.method == "OPTIONS":
+                return ("", 204)
+            user = getattr(g, "current_user", None)
+            if not user or not user_has_permission(user, perm):
+                return api_error("FORBIDDEN", f"You do not have permission to perform this action ({perm}).", 403)
             return f(*args, **kwargs)
         return decorated
     return decorator
@@ -125,19 +205,15 @@ def role_required(min_role):
 def ingest_key_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Support X-Ingest-Key, Bearer auth, query params ?token= or ?key=, or Vercel verify header
-        auth_header = request.headers.get("Authorization", "")
-        bearer_token = auth_header.split()[1] if auth_header.startswith("Bearer ") and len(auth_header.split()) > 1 else ""
-        key = (
-            request.headers.get("X-Ingest-Key")
-            or bearer_token
-            or request.headers.get("x-vercel-verify")
-            or request.args.get("token")
-            or request.args.get("key")
-            or ""
+        raw_key = (
+            request.headers.get("X-API-Key")
+            or request.headers.get("X-Ingest-Key")
+            or request.headers.get("Authorization", "").replace("Bearer ", "").strip()
         )
+        if not raw_key:
+            return jsonify({"error": "Ingest key required (X-API-Key header)"}), 401
         db = get_db()
-        entry = get_active_ingest_key(db, key)
+        entry = authenticate_ingest_key(db, raw_key)
         if not entry:
             return jsonify({"error": "Invalid or missing ingest key"}), 401
         g.ingest_key = entry
@@ -146,6 +222,14 @@ def ingest_key_required(f):
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
+    client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "127.0.0.1").split(",")[0].strip()
+    allowed, retry_after = _check_login_rate_limit(client_ip)
+    if not allowed:
+        err_body, status_code = api_error("TOO_MANY_REQUESTS", f"Too many login attempts. Please retry in {retry_after} seconds.", 429)
+        resp = app.make_response((err_body, status_code))
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp
+
     data = request.get_json(silent=True) or {}
     username, password = data.get("username", "").strip(), data.get("password", "")
     if not username or not password:
@@ -180,6 +264,65 @@ def logout():
 def me():
     return jsonify(serialize_user(g.current_user))
 
+@app.route("/api/auth/change_password", methods=["POST"])
+@login_required
+def change_password():
+    data = request.get_json(silent=True) or {}
+    current_password = str(data.get("current_password") or "")
+    new_password = str(data.get("new_password") or "")
+
+    if not current_password or not new_password:
+        return api_error("BAD_REQUEST", "Current password and new password are required.", 400)
+
+    if not check_password_hash(g.current_user.password_hash, current_password):
+        return api_error("UNAUTHORIZED", "Current password is incorrect.", 401)
+
+    if len(new_password.strip()) < 8:
+        return api_error("BAD_REQUEST", "New password must be at least 8 characters long.", 400)
+
+    db = get_db()
+    g.current_user.password_hash = generate_password_hash(new_password)
+    db.commit()
+
+    # Revoke all existing sessions so old tokens become invalid
+    revoke_all_tokens_for_user(db, g.current_user.id)
+
+    # Issue a fresh token for current session
+    fresh_token = issue_token(db, g.current_user)
+
+    write_audit(
+        db,
+        action="auth.password_change",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(g.current_user.id),
+        details="User successfully changed password",
+        success=True,
+    )
+
+    return jsonify({
+        "success": True,
+        "message": "Password changed successfully.",
+        "token": fresh_token,
+        "user": serialize_user(g.current_user),
+    })
+
+@app.route("/api/auth/revoke_all_sessions", methods=["POST"])
+@login_required
+def revoke_all_sessions():
+    db = get_db()
+    revoke_all_tokens_for_user(db, g.current_user.id)
+    write_audit(
+        db,
+        action="auth.revoke_all_sessions",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(g.current_user.id),
+        details="User revoked all active sessions",
+        success=True,
+    )
+    return jsonify({"success": True, "message": "All active sessions have been revoked."})
+
 def broadcast_new_alert(alert_obj):
     socketio.emit('new_alert', {
         "id": alert_obj.id,
@@ -208,7 +351,7 @@ def get_dashboard():
         "1M": timedelta(days=30), "3M": timedelta(days=90), "6M": timedelta(days=180), "1Y": timedelta(days=365)
     }
     delta = delta_map.get(range_val, timedelta(hours=24))
-    start_time = datetime.utcnow() - delta
+    start_time = utcnow() - delta
 
     alerts_query = db.query(Alert).filter(Alert.event_timestamp >= start_time)
     alerts = alerts_query.order_by(Alert.event_timestamp.desc()).all()
@@ -441,7 +584,7 @@ def generate_report(alert_id):
         prepared_by = "Manan Mandal"
 
     buffer = generate_alert_incident_pdf(db, alert, prepared_by=prepared_by)
-    year = (alert.event_timestamp or alert.created_at or datetime.utcnow()).year
+    year = (alert.event_timestamp or alert.created_at or utcnow()).year
     download_name = f"IR-{year}-{int(alert.id):03d}_Incident_Report.pdf"
     response = send_file(
         buffer,
@@ -684,6 +827,15 @@ def create_user():
     db.add(user)
     db.commit()
     db.refresh(user)
+    write_audit(
+        db,
+        action="user.create",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details=f"Created user '{user.username}' with role '{user.role}'",
+        success=True,
+    )
     return jsonify(serialize_user(user)), 201
 
 @app.route("/api/admin/users/<int:user_id>/role", methods=["POST"])
@@ -709,9 +861,19 @@ def update_user_role(user_id):
                 409,
             )
 
+    old_role = user.role
     user.role = role
     db.commit()
     revoke_all_tokens_for_user(db, user.id)  # force re-login so new role takes effect immediately
+    write_audit(
+        db,
+        action="user.role_change",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details=f"Changed user '{user.username}' role from '{old_role}' to '{role}'",
+        success=True,
+    )
     return jsonify(serialize_user(user))
 
 @app.route("/api/admin/users/<int:user_id>/deactivate", methods=["POST"])
@@ -733,6 +895,15 @@ def deactivate_user(user_id):
     user.is_active = False
     db.commit()
     revoke_all_tokens_for_user(db, user.id)
+    write_audit(
+        db,
+        action="user.deactivate",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details=f"Deactivated user '{user.username}'",
+        success=True,
+    )
     return jsonify({"status": "deactivated", "id": user.id})
 
 @app.route("/api/admin/users/<int:user_id>/activate", methods=["POST"])
@@ -745,6 +916,15 @@ def activate_user(user_id):
         return api_error("NOT_FOUND", "User not found.", 404)
     user.is_active = True
     db.commit()
+    write_audit(
+        db,
+        action="user.activate",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details=f"Activated user '{user.username}'",
+        success=True,
+    )
     return jsonify(serialize_user(user))
 
 @app.route("/api/admin/users/<int:user_id>/reset_password", methods=["POST"])
@@ -764,6 +944,15 @@ def reset_user_password(user_id):
     user.password_hash = generate_password_hash(password)
     db.commit()
     revoke_all_tokens_for_user(db, user.id)
+    write_audit(
+        db,
+        action="user.password_reset",
+        user=g.current_user,
+        resource_type="user",
+        resource_id=str(user.id),
+        details=f"Admin reset password for user '{user.username}'",
+        success=True,
+    )
     return jsonify({"status": "password_reset", "id": user.id})
 
 # --- INGEST KEY MANAGEMENT (admin only) ---
@@ -848,7 +1037,7 @@ def ingest_vercel():
                 try:
                     parsed.append(json.loads(line))
                 except Exception:
-                    parsed.append({"message": line, "timestamp": datetime.utcnow().isoformat() + "Z"})
+                    parsed.append({"message": line, "timestamp": utcnow().isoformat() + "Z"})
             payload = parsed
         else:
             payload = []
@@ -865,7 +1054,7 @@ def ingest_vercel():
 def ingest_manual():
     data = request.get_json(silent=True) or {}
     if "raw_text" in data:
-        now = datetime.utcnow().isoformat() + "Z"
+        now = utcnow().isoformat() + "Z"
         lines = [line.strip() for line in (data.get("raw_text") or "").splitlines() if line.strip()]
         payload = [{"timestamp": now, "message": line} for line in lines]
     else:
@@ -912,7 +1101,7 @@ def ingest_upload_file():
             except Exception:
                 parsed_lines.append({
                     "message": line_str,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "timestamp": utcnow().isoformat() + "Z",
                 })
         payload = parsed_lines
 
@@ -953,7 +1142,7 @@ def trigger_alert():
     if os.environ.get("TH_ENABLE_DEBUG_ROUTES", "false").lower() != "true":
         return api_error("NOT_FOUND", "Debug routes disabled.", 404)
     db = get_db()
-    ts = datetime.utcnow()
+    ts = utcnow()
     new_event = Event(timestamp=ts, host="WIN-SRV-01", process="malware.exe", commandline="C2-Beacon")
     db.add(new_event)
     db.commit()
@@ -986,11 +1175,20 @@ def handle_disconnect():
 @socketio.on('ping')
 def handle_ping():
     """Echo pings from client (heartbeat)."""
-    emit('pong', {'timestamp': datetime.utcnow().isoformat()})
+    emit('pong', {'timestamp': utcnow().isoformat()})
 
 # Web scan progress / lifecycle events over Socket.IO
-from .web_scanner import set_broadcast as set_webscan_broadcast
+from .web_scanner import set_broadcast as set_webscan_broadcast, recover_stale_scans, get_engine_status
 set_webscan_broadcast(lambda event, payload: socketio.emit(event, payload))
+
+# Recover any stale or interrupted scans from previous process lifetime
+if os.environ.get("FLASK_ENV") != "testing":
+    try:
+        recovered = recover_stale_scans()
+        if recovered:
+            print(f"[OK] Recovered {recovered} stale/interrupted web scan(s).")
+    except Exception as exc:
+        print(f"[WARN] Failed recovering stale web scans: {exc}")
 
 # Start background log tailer (offset-tracked via IngestionState).
 if os.environ.get("TH_DISABLE_LOG_WATCHER", "").lower() not in ("1", "true", "yes") and os.environ.get("FLASK_ENV") != "testing":
@@ -1001,4 +1199,17 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("TH_FLASK_DEBUG", "false").lower() == "true"
+
+    # Startup diagnostics banner
+    engine_status = get_engine_status()
+    print("=" * 60)
+    print("  DecodeX Threat Hunting & Web Security Platform")
+    print(f"  Listening on: http://{host}:{port}")
+    print(f"  Database Engine: {os.environ.get('DATABASE_URL', 'SQLite (threat_hunting.db)')}")
+    print(f"  ZAP Available: {engine_status.get('zap', {}).get('available', False)}")
+    print(f"  Nuclei Available: {engine_status.get('nuclei', {}).get('available', False)}")
+    print(f"  Nmap Available: {engine_status.get('nmap', {}).get('available', False)}")
+    print(f"  Safety Mode: {'LAB' if engine_status.get('safety', {}).get('lab_mode') else 'PRODUCTION'}")
+    print("=" * 60)
+
     socketio.run(app, host=host, port=port, debug=debug_mode, allow_unsafe_werkzeug=True)

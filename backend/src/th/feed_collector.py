@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from .db import FeedSource, IOC, get_db
+from .db import FeedSource, IOC, get_db, utcnow
 
 # Keep sync responsive on demo hardware / managed laptops.
 MAX_IOCS_PER_FEED = 500
@@ -29,7 +29,7 @@ class FeedCollector:
             "errors": [],
             "feeds": [],
         }
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         try:
             from flask import has_app_context
 
@@ -97,7 +97,7 @@ class FeedCollector:
         values = self._extract_values(response.text, ioc_type)
         added = 0
         updated = 0
-        now = datetime.now(timezone.utc)
+        now = utcnow()
 
         for value in values[:MAX_IOCS_PER_FEED]:
             existing = db.query(IOC).filter_by(type=ioc_type, value=value).first()

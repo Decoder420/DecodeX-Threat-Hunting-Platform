@@ -20,8 +20,14 @@ class YaraScanner:
             print(f"[ERROR] YARA Error: {e}")
 
     def scan_log(self, log_data):
-        if not self.rules: return []
-        matches = self.rules.match(data=str(log_data))
-        return [m.rule for m in matches]
+        if not self.rules:
+            return []
+        try:
+            # Enforce max payload inspection size (64KB) and match timeout (3s) for safety
+            data_str = str(log_data)[:65536]
+            matches = self.rules.match(data=data_str, timeout=3)
+            return [m.rule for m in matches]
+        except Exception as e:
+            return []
 
 scanner = YaraScanner()
