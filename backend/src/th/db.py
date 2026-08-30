@@ -828,20 +828,6 @@ def _seed_defaults(db) -> None:
             current.url = feed["url"]
             current.ioc_type = feed["ioc_type"]
             current.last_error = ""
-
-    demo_assets = [
-        {"hostname": "DC-01", "ip": "10.0.0.10", "asset_type": "DOMAIN_CONTROLLER", "criticality": "CRITICAL", "operating_system": "Windows Server", "owner": "IT"},
-        {"hostname": "WEB-01", "ip": "10.0.0.20", "asset_type": "WEB_SERVER", "criticality": "HIGH", "operating_system": "Linux", "owner": "AppSec"},
-        {"hostname": "PC-01", "ip": "192.168.1.10", "asset_type": "WORKSTATION", "criticality": "MEDIUM", "operating_system": "Windows 11", "owner": "admin"},
-        {"hostname": "PC-02", "ip": "192.168.1.11", "asset_type": "WORKSTATION", "criticality": "MEDIUM", "operating_system": "Windows 11", "owner": "user"},
-        {"hostname": "DB-01", "ip": "10.0.0.30", "asset_type": "DATABASE", "criticality": "HIGH", "operating_system": "Linux", "owner": "DBA"},
-        {"hostname": "PC-03", "ip": "192.168.1.12", "asset_type": "WORKSTATION", "criticality": "LOW", "operating_system": "Windows 10", "owner": "user"},
-        {"hostname": "FW-01", "ip": "10.0.0.1", "asset_type": "FIREWALL", "criticality": "CRITICAL", "operating_system": "Appliance", "owner": "Network"},
-    ]
-    for asset in demo_assets:
-        if not db.query(Asset).filter_by(hostname=asset["hostname"]).first():
-            db.add(Asset(**asset, environment="lab", description="Demo/sample asset"))
-
     db.commit()
 
 
@@ -983,10 +969,6 @@ def _initialize_database() -> None:
         db = SessionLocal()
         try:
             _seed_defaults(db)
-            # Ensure demo IOC watchlist exists even before first live sync.
-            from .pipeline import seed_iocs
-
-            seed_iocs(db)
         finally:
             db.close()
         _db_initialized = True

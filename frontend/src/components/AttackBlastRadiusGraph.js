@@ -21,37 +21,62 @@ export default function AttackBlastRadiusGraph({ target, findings = [], alerts =
     // 1. Center Target Node
     const nodes = [
       { id: "target", label: targetName, sub: targetUrl, type: "target", x: 380, y: 220, radius: 28, color: "#3ee0a2" },
-      { id: "ingress", label: "Perimeter Ingress", sub: "Vercel / Cloudflare Edge", type: "ingress", x: 220, y: 220, radius: 22, color: "#56c6ff" },
-      { id: "attacker_1", label: "Threat Actor IP", sub: "185.220.101.42 (RU)", type: "attacker", x: 70, y: 150, radius: 24, color: "#ff5252" },
-      { id: "attacker_2", label: "Botnet Origin", sub: "103.251.167.20 (CN)", type: "attacker", x: 70, y: 290, radius: 22, color: "#ff5252" },
-      { id: "mitre", label: "MITRE ATT&CK", sub: "T1190 Exploit Public App", type: "mitre", x: 550, y: 140, radius: 22, color: "#b388ff" },
-      { id: "action", label: "Enforce WAF Rule", sub: "Virtual Patch deployed", type: "action", x: 680, y: 220, radius: 24, color: "#ffd54f" },
     ];
-
-    const links = [
-      { from: "attacker_1", to: "ingress", label: "SQLi Probes" },
-      { from: "attacker_2", to: "ingress", label: "Credential Stuffing" },
-      { from: "ingress", to: "target", label: "Reverse Proxy" },
-      { from: "target", to: "mitre", label: "Tactical Mapping" },
-      { from: "mitre", to: "action", label: "Automated Fix" },
-    ];
+    const links = [];
 
     // Append dynamic finding nodes if present
     if (findings.length > 0) {
-      findings.slice(0, 3).forEach((f, idx) => {
+      nodes.push({ id: "ingress", label: "Perimeter Ingress", sub: targetUrl, type: "ingress", x: 220, y: 220, radius: 22, color: "#56c6ff" });
+      links.push({ from: "ingress", to: "target", label: "HTTP Route" });
+
+      findings.slice(0, 5).forEach((f, idx) => {
         const id = `finding_${f.id || idx}`;
         nodes.push({
           id,
           label: f.title || "Vulnerability",
-          sub: `${f.severity} · ${f.path || "/api"}`,
+          sub: `${f.severity} · ${f.path || f.affected_url || "/"}`,
           type: "finding",
-          x: 480 + idx * 60,
-          y: 310 + (idx % 2) * 50,
+          x: 480 + (idx % 3) * 70,
+          y: 150 + Math.floor(idx / 3) * 120,
           radius: 20,
           color: f.severity === "CRITICAL" || f.severity === "HIGH" ? "#ff5252" : "#ffa726",
           meta: f,
         });
         links.push({ from: "target", to: id, label: "Discovered Vuln" });
+      });
+
+      const topMitre = findings.find((f) => f.cwe || f.owasp);
+      if (topMitre) {
+        nodes.push({
+          id: "mitre",
+          label: "Classification",
+          sub: topMitre.cwe || topMitre.owasp,
+          type: "mitre",
+          x: 640,
+          y: 220,
+          radius: 22,
+          color: "#b388ff",
+        });
+        links.push({ from: "target", to: "mitre", label: "Threat Mapping" });
+      }
+    }
+
+    // Append dynamic alert nodes if present
+    if (alerts.length > 0) {
+      alerts.slice(0, 2).forEach((a, idx) => {
+        const id = `alert_${a.id || idx}`;
+        nodes.push({
+          id,
+          label: a.tactic || "Adversary Alert",
+          sub: a.ip || a.host || "External Origin",
+          type: "attacker",
+          x: 90,
+          y: 160 + idx * 120,
+          radius: 22,
+          color: "#ff5252",
+          meta: a,
+        });
+        links.push({ from: id, to: "target", label: "Attack Vector" });
       });
     }
 
@@ -242,6 +267,24 @@ export default function AttackBlastRadiusGraph({ target, findings = [], alerts =
           onMouseUp={handleMouseUp}
         >
           <canvas ref={canvasRef} width={760} height={440} style={{ width: "100%", height: "auto" }} />
+          {findings.length === 0 && alerts.length === 0 && (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                background: "rgba(0, 0, 0, 0.75)",
+                border: "1px dashed rgba(86, 198, 255, 0.3)",
+                padding: "8px 14px",
+                borderRadius: 6,
+                fontSize: "0.76rem",
+                color: "#56c6ff",
+                pointerEvents: "none",
+              }}
+            >
+              Target baseline clear · Zero active threat paths detected
+            </div>
+          )}
           <div
             style={{
               position: "absolute",

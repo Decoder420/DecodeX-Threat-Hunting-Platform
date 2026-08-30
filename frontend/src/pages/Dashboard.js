@@ -46,7 +46,6 @@ import {
 import Navbar from "../components/Navbar";
 import Button from "../components/ui/Button";
 import Badge from "../components/ui/Badge";
-import KpiStat from "../components/ui/KpiStat";
 import MetricSparkCard from "../components/MetricSparkCard";
 import CyberAttackGlobe from "../components/CyberAttackGlobe";
 import ThreatHeatmap from "../components/ThreatHeatmap";
@@ -934,42 +933,54 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                             (data && data.metadata && data.metadata.total_alerts) ??
                             0
                         }
-                        delta="+14.2%"
-                        isPositiveDelta={false}
+                        delta={((data && data.kpis && data.kpis.total_alerts) || 0) > 0 ? "Active alerts" : "No alerts"}
+                        isPositiveDelta={((data && data.kpis && data.kpis.total_alerts) || 0) === 0}
                         hint="Correlated SIEM alerts"
                         icon="🚨"
                         glowColor="#ff5252"
-                        sparklineData={[8, 12, 14, 10, 18, 15, 22, 26, 20, 28]}
+                        sparklineData={
+                            ((data && data.kpis && data.kpis.total_alerts) || 0) > 0
+                                ? [1, 2, ((data && data.kpis && data.kpis.total_alerts) || 0)]
+                                : [0, 0, 0, 0, 0, 0]
+                        }
                     />
                     <MetricSparkCard
                         title="High / Critical"
                         value={(data && data.kpis && data.kpis.high_or_above) || 0}
-                        delta="Priority queue"
-                        isPositiveDelta={false}
+                        delta={((data && data.kpis && data.kpis.high_or_above) || 0) > 0 ? "Priority queue" : "Queue clear"}
+                        isPositiveDelta={((data && data.kpis && data.kpis.high_or_above) || 0) === 0}
                         hint="Active threat backlog"
                         icon="▲"
                         glowColor="#f0b429"
-                        sparklineData={[4, 6, 5, 8, 7, 9, 12, 10, 14, 15]}
+                        sparklineData={
+                            ((data && data.kpis && data.kpis.high_or_above) || 0) > 0
+                                ? [1, ((data && data.kpis && data.kpis.high_or_above) || 0)]
+                                : [0, 0, 0, 0, 0, 0]
+                        }
                     />
                     <MetricSparkCard
                         title="Ingested Telemetry"
                         value={(data && data.metadata && data.metadata.total_events) || 0}
-                        delta="+28.4% velocity"
+                        delta={((data && data.metadata && data.metadata.total_events) || 0) > 0 ? "Active ingestion" : "Idle"}
                         isPositiveDelta={true}
                         hint="Normalized syslog & Vercel"
                         icon="📡"
                         glowColor="#56c6ff"
-                        sparklineData={[120, 180, 240, 310, 290, 420, 480, 560, 620, 750]}
+                        sparklineData={
+                            ((data && data.metadata && data.metadata.total_events) || 0) > 0
+                                ? [1, ((data && data.metadata && data.metadata.total_events) || 0)]
+                                : [0, 0, 0, 0, 0, 0]
+                        }
                     />
                     <MetricSparkCard
                         title="Live SIEM Pipeline"
-                        value={socketStatus === "online" ? "ONLINE" : "ONLINE"}
+                        value={socketStatus === "online" ? "ONLINE" : "STANDBY"}
                         delta="Zero latency"
                         isPositiveDelta={true}
                         hint="Realtime Socket.IO link"
                         icon="⚡"
                         glowColor="#3ee0a2"
-                        sparklineData={[10, 10, 10, 10, 10, 10, 10, 10, 10, 10]}
+                        sparklineData={[1, 1, 1, 1, 1]}
                     />
                 </div>
 
@@ -987,7 +998,7 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                                     📊 Switch to Executive Threat Matrix
                                 </Button>
                             </div>
-                            <CyberAttackGlobe />
+                            <CyberAttackGlobe alerts={data?.alerts || []} />
                         </div>
                     ) : (
                         <div
@@ -1009,10 +1020,10 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                                         <h3 style={{ margin: 0, fontSize: "1.15rem", color: "var(--text)", fontFamily: "var(--font-display)" }}>
                                             Global Threat Origin &amp; Perimeter Defense
                                         </h3>
-                                        <Badge tone="danger">6 Active Vectors</Badge>
+                                        <Badge tone="danger">{(data?.alerts || []).filter(a => a.ip).length} Active Vectors</Badge>
                                     </div>
                                     <div style={{ fontSize: "0.82rem", color: "var(--color-text-muted)", marginTop: 4 }}>
-                                        Real-time geospatial telemetry tracking foreign adversary probes against protected endpoints
+                                        Derived from ingested alert telemetry — alerts with external source IPs
                                     </div>
                                 </div>
 
@@ -1028,129 +1039,174 @@ export default function Dashboard({ onLogout, currentUser, embedded = false, ini
                                 </div>
                             </div>
 
-                            {/* Summary Mini KPIs */}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-                                <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(86, 198, 255, 0.05)", border: "1px solid rgba(86, 198, 255, 0.15)" }}>
-                                    <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Inbound Probes (24h)</div>
-                                    <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--text)", marginTop: 2 }}>14,820</div>
-                                    <div style={{ fontSize: "0.72rem", color: "#56c6ff" }}>+18.4% velocity vs baseline</div>
-                                </div>
-                                <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(62, 224, 162, 0.05)", border: "1px solid rgba(62, 224, 162, 0.15)" }}>
-                                    <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Edge WAF Mitigation</div>
-                                    <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#3ee0a2", marginTop: 2 }}>99.4%</div>
-                                    <div style={{ fontSize: "0.72rem", color: "#3ee0a2" }}>Zero perimeter breaches</div>
-                                </div>
-                                <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(255, 92, 122, 0.05)", border: "1px solid rgba(255, 92, 122, 0.15)" }}>
-                                    <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Adversary Origin Clusters</div>
-                                    <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#ff5c7a", marginTop: 2 }}>5 Nations</div>
-                                    <div style={{ fontSize: "0.72rem", color: "#ff5c7a" }}>RU, CN, DE, BR, US</div>
-                                </div>
-                            </div>
-
-                            {/* 2-Column Balanced Matrix */}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
-                                {/* Top Threat Origin Geographies */}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                    <div style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "var(--color-text-muted)" }}>
-                                        Top Adversary Geographies
-                                    </div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                        {[
-                                            { flag: "🇷🇺", country: "Russia (RU)", pct: 38.2, sev: "CRITICAL", tactic: "SQLi & Edge SSRF Probes", color: "#ff5252" },
-                                            { flag: "🇨🇳", country: "China (CN)", pct: 27.6, sev: "HIGH", tactic: "Credential Stuffing & Auth Bypasses", color: "#ff7043" },
-                                            { flag: "🇩🇪", country: "Germany (DE)", pct: 14.8, sev: "HIGH", tactic: "Path Traversal (LFI) & Scanners", color: "#ffa726" },
-                                            { flag: "🇧🇷", country: "Brazil (BR)", pct: 11.2, sev: "MEDIUM", tactic: "Distributed Scraper Botnets", color: "#56c6ff" },
-                                            { flag: "🇺🇸", country: "United States (US)", pct: 8.2, sev: "LOW", tactic: "Automated DAST Fuzzers", color: "#3ee0a2" },
-                                        ].map((geo) => (
-                                            <div
-                                                key={geo.country}
-                                                style={{
-                                                    padding: "10px 14px",
-                                                    borderRadius: 8,
-                                                    background: "var(--bg-2)",
-                                                    border: "1px solid var(--line)",
-                                                    display: "flex",
-                                                    flexDirection: "column",
-                                                    gap: 6,
-                                                }}
-                                            >
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        <span style={{ fontSize: "1.1rem" }}>{geo.flag}</span>
-                                                        <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text)" }}>{geo.country}</span>
-                                                    </div>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        <span style={{ fontSize: "0.82rem", fontWeight: 700, color: geo.color }}>{geo.pct}%</span>
-                                                        <Badge tone={geo.sev === "CRITICAL" ? "danger" : geo.sev === "HIGH" ? "warn" : "ok"}>
-                                                            {geo.sev}
-                                                        </Badge>
-                                                    </div>
-                                                </div>
-                                                {/* Progress Bar */}
-                                                <div style={{ width: "100%", height: 5, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                                    <div style={{ width: `${geo.pct}%`, height: "100%", background: geo.color, borderRadius: 999 }} />
-                                                </div>
-                                                <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>
-                                                    Predominant Technique: <b>{geo.tactic}</b>
-                                                </div>
+                            {/* Summary Mini KPIs — computed from real alert data */}
+                            {(() => {
+                                const alerts = data?.alerts || [];
+                                const alertsWithIp = alerts.filter(a => a.ip);
+                                const criticalCount = alerts.filter(a => (a.severity || "").toLowerCase() === "critical").length;
+                                const highCount = alerts.filter(a => (a.severity || "").toLowerCase() === "high").length;
+                                const countrySet = new Set(
+                                    alertsWithIp.map(a => a.geo_country || a.country || "").filter(Boolean)
+                                );
+                                return (
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                                        <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(86, 198, 255, 0.05)", border: "1px solid rgba(86, 198, 255, 0.15)" }}>
+                                            <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Alerts with Source IP</div>
+                                            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--text)", marginTop: 2 }}>
+                                                {alertsWithIp.length > 0 ? alertsWithIp.length.toLocaleString() : "—"}
                                             </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Ingress Intercept Queue */}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                    <div style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "var(--color-text-muted)" }}>
-                                        Recent Intercepts &amp; WAF Rules
-                                    </div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                        {[
-                                            { ip: "185.220.101.42", city: "Moscow", country: "RU", flag: "🇷🇺", target: "iuis.in", tactic: "SQL Injection Probe", mitre: "T1190", sev: "CRITICAL" },
-                                            { ip: "103.251.167.20", city: "Beijing", country: "CN", flag: "🇨🇳", target: "iuis.in", tactic: "Credential Stuffing", mitre: "T1110", sev: "HIGH" },
-                                            { ip: "194.26.29.112", city: "Frankfurt", country: "DE", flag: "🇩🇪", target: "newskothri.com", tactic: "Path Traversal (LFI)", mitre: "T1083", sev: "HIGH" },
-                                            { ip: "45.154.255.89", city: "St. Petersburg", country: "RU", flag: "🇷🇺", target: "hrms-iui-frontend.vercel.app", tactic: "SSRF on Edge API", mitre: "T1090", sev: "CRITICAL" },
-                                        ].map((item) => (
-                                            <div
-                                                key={item.ip}
-                                                style={{
-                                                    padding: "10px 14px",
-                                                    borderRadius: 8,
-                                                    background: "var(--bg-2)",
-                                                    border: "1px solid var(--line)",
-                                                    display: "flex",
-                                                    justifyContent: "space-between",
-                                                    alignItems: "center",
-                                                    gap: 12,
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                        <span>{item.flag}</span>
-                                                        <code style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)" }}>{item.ip}</code>
-                                                        <span style={{ fontSize: "0.74rem", color: "var(--color-text-muted)" }}>({item.city}, {item.country})</span>
-                                                    </div>
-                                                    <div style={{ fontSize: "0.74rem", color: "var(--color-text-muted)", marginTop: 2 }}>
-                                                        Target: <span style={{ color: "#56c6ff" }}>{item.target}</span> · <b>{item.tactic}</b>
-                                                    </div>
-                                                </div>
-                                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                    <Badge tone={item.sev === "CRITICAL" ? "danger" : "warn"}>{item.sev}</Badge>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        onClick={() => window.alert(`Active WAF perimeter rule protecting against ${item.ip}!`)}
-                                                        style={{ fontSize: "0.72rem", padding: "4px 8px" }}
-                                                    >
-                                                        🛡️ WAF Rule
-                                                    </Button>
-                                                </div>
+                                            <div style={{ fontSize: "0.72rem", color: "#56c6ff" }}>
+                                                {alerts.length > 0 ? `of ${alerts.length.toLocaleString()} total alerts` : "No alerts ingested yet"}
                                             </div>
-                                        ))}
+                                        </div>
+                                        <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(255, 92, 122, 0.05)", border: "1px solid rgba(255, 92, 122, 0.15)" }}>
+                                            <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Critical / High Severity</div>
+                                            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#ff5c7a", marginTop: 2 }}>
+                                                {criticalCount + highCount > 0 ? (criticalCount + highCount).toLocaleString() : "—"}
+                                            </div>
+                                            <div style={{ fontSize: "0.72rem", color: "#ff5c7a" }}>
+                                                {criticalCount} critical · {highCount} high
+                                            </div>
+                                        </div>
+                                        <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(62, 224, 162, 0.05)", border: "1px solid rgba(62, 224, 162, 0.15)" }}>
+                                            <div className="muted" style={{ fontSize: "0.72rem", textTransform: "uppercase", fontWeight: 700 }}>Origin Countries</div>
+                                            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#3ee0a2", marginTop: 2 }}>
+                                                {countrySet.size > 0 ? countrySet.size : "—"}
+                                            </div>
+                                            <div style={{ fontSize: "0.72rem", color: "#3ee0a2" }}>
+                                                {countrySet.size > 0 ? Array.from(countrySet).slice(0, 4).join(", ") : "No geo data in alerts"}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
+                                );
+                            })()}
+
+                            {/* 2-Column Matrix — derived from real alerts */}
+                            {(() => {
+                                const alerts = data?.alerts || [];
+                                const alertsWithIp = alerts.filter(a => a.ip);
+
+                                // Group by country for origin breakdown
+                                const countryMap = {};
+                                alertsWithIp.forEach(a => {
+                                    const cc = a.geo_country || a.country || "Unknown";
+                                    if (!countryMap[cc]) countryMap[cc] = { count: 0, tactics: {} };
+                                    countryMap[cc].count += 1;
+                                    const t = a.tactic || "Unknown";
+                                    countryMap[cc].tactics[t] = (countryMap[cc].tactics[t] || 0) + 1;
+                                });
+                                const total = alertsWithIp.length || 1;
+                                const topCountries = Object.entries(countryMap)
+                                    .sort((a, b) => b[1].count - a[1].count)
+                                    .slice(0, 5)
+                                    .map(([cc, d]) => ({
+                                        country: cc,
+                                        pct: Math.round((d.count / total) * 1000) / 10,
+                                        count: d.count,
+                                        tactic: Object.entries(d.tactics).sort((a, b) => b[1] - a[1])[0]?.[0] || "Unknown",
+                                    }));
+
+                                // Most recent alerts with IPs
+                                const recentIntercepts = alertsWithIp
+                                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                                    .slice(0, 5);
+
+                                return (
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
+                                        {/* Origin Country Breakdown */}
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                            <div style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "var(--color-text-muted)" }}>
+                                                Alert Origin Countries
+                                            </div>
+                                            {topCountries.length === 0 ? (
+                                                <div style={{ padding: "20px 16px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", textAlign: "center", color: "var(--color-text-muted)", fontSize: "0.82rem" }}>
+                                                    No geo-tagged alerts in the selected time range.<br />
+                                                    <span style={{ fontSize: "0.75rem" }}>Alerts need a <code>geo_country</code> field to appear here.</span>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                                    {topCountries.map((geo) => (
+                                                        <div
+                                                            key={geo.country}
+                                                            style={{
+                                                                padding: "10px 14px",
+                                                                borderRadius: 8,
+                                                                background: "var(--bg-2)",
+                                                                border: "1px solid var(--line)",
+                                                                display: "flex",
+                                                                flexDirection: "column",
+                                                                gap: 6,
+                                                            }}
+                                                        >
+                                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                                <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text)" }}>{geo.country}</span>
+                                                                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#56c6ff" }}>{geo.pct}% ({geo.count})</span>
+                                                            </div>
+                                                            <div style={{ width: "100%", height: 5, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                                                                <div style={{ width: `${geo.pct}%`, height: "100%", background: "#56c6ff", borderRadius: 999 }} />
+                                                            </div>
+                                                            <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted)" }}>
+                                                                Top tactic: <b>{geo.tactic}</b>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Recent Alerts with Source IPs */}
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                            <div style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "var(--color-text-muted)" }}>
+                                                Recent Alerts with Source IPs
+                                            </div>
+                                            {recentIntercepts.length === 0 ? (
+                                                <div style={{ padding: "20px 16px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--line)", textAlign: "center", color: "var(--color-text-muted)", fontSize: "0.82rem" }}>
+                                                    No alerts with source IPs in the selected time range.<br />
+                                                    <span style={{ fontSize: "0.75rem" }}>Ingest endpoint logs or network events to populate this panel.</span>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                                    {recentIntercepts.map((item) => (
+                                                        <div
+                                                            key={item.id}
+                                                            style={{
+                                                                padding: "10px 14px",
+                                                                borderRadius: 8,
+                                                                background: "var(--bg-2)",
+                                                                border: "1px solid var(--line)",
+                                                                display: "flex",
+                                                                justifyContent: "space-between",
+                                                                alignItems: "center",
+                                                                gap: 12,
+                                                            }}
+                                                        >
+                                                            <div>
+                                                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                                    <code style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)" }}>{item.ip}</code>
+                                                                    {(item.geo_country || item.country) && (
+                                                                        <span style={{ fontSize: "0.74rem", color: "var(--color-text-muted)" }}>
+                                                                            ({item.geo_city ? `${item.geo_city}, ` : ""}{item.geo_country || item.country})
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div style={{ fontSize: "0.74rem", color: "var(--color-text-muted)", marginTop: 2 }}>
+                                                                    Host: <span style={{ color: "#56c6ff" }}>{item.host || "—"}</span> · <b>{item.tactic || item.name}</b>
+                                                                </div>
+                                                            </div>
+                                                            <Badge tone={(item.severity || "").toLowerCase() === "critical" ? "danger" : (item.severity || "").toLowerCase() === "high" ? "warn" : "ok"}>
+                                                                {(item.severity || "UNKNOWN").toUpperCase()}
+                                                            </Badge>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
+
                 </div>
 
                 {/* 7-Day 24x7 Threat Activity Heatmap */}

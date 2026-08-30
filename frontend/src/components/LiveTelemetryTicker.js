@@ -1,57 +1,56 @@
 import React, { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
-
-const INITIAL_LOGS = [
-  { id: "log-1", ts: "17:20:01", source: "vercel", ip: "198.51.100.23", method: "POST", path: "/api/v1/auth/login", status: 401, sev: "WARN", msg: "Invalid credential attempt (brute-force threshold)" },
-  { id: "log-2", ts: "17:20:04", source: "syslog", ip: "10.0.0.4", method: "EXEC", path: "/bin/sh", status: 0, sev: "INFO", msg: "Cron job execution: healthcheck.sh" },
-  { id: "log-3", ts: "17:20:08", source: "cloudflare", ip: "185.220.101.42", method: "GET", path: "/products?id=1%27%20OR%201=1--", status: 403, sev: "CRITICAL", msg: "WAF Rule Triggered: SQLi pattern in querystring" },
-  { id: "log-4", ts: "17:20:12", source: "dast", ip: "127.0.0.1", method: "HEAD", path: "/admin/console", status: 302, sev: "INFO", msg: "Spider crawled endpoint redirected to auth" },
-  { id: "log-5", ts: "17:20:15", source: "vercel", ip: "103.251.167.20", method: "POST", path: "/api/ingest/vercel", status: 200, sev: "OK", msg: "Log Drain batch ingested: 12 proxy records" },
-];
+import { API_BASE_URL } from "../api";
+import { getStoredToken } from "../auth";
 
 export default function LiveTelemetryTicker() {
   const [isOpen, setIsOpen] = useState(false);
-  const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [logs, setLogs] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
   const [filterSource, setFilterSource] = useState("ALL");
   const [inspectedLog, setInspectedLog] = useState(null);
   const logContainerRef = useRef(null);
 
-  // Live streaming simulation / interval
+  // Query real ingested events on mount if authenticated; no synthetic fake generation
   useEffect(() => {
-    if (isPaused) return;
-
-    const interval = setInterval(() => {
-      const sources = ["vercel", "cloudflare", "syslog", "dast"];
-      const src = sources[Math.floor(Math.random() * sources.length)];
-      const now = new Date();
-      const timeStr = now.toTimeString().split(" ")[0];
-
-      const samplePaths = [
-        { method: "GET", path: "/api/health", status: 200, sev: "OK", msg: "Healthcheck ping acknowledged" },
-        { method: "POST", path: "/api/auth/token", status: 200, sev: "OK", msg: "OAuth session refreshed" },
-        { method: "GET", path: "/wp-login.php", status: 404, sev: "WARN", msg: "Probing unknown PHP admin path" },
-        { method: "POST", path: "/api/web-targets/4/scan", status: 200, sev: "INFO", msg: "DAST scanner dispatched crawler worker" },
-        { method: "GET", path: "/etc/passwd", status: 400, sev: "CRITICAL", msg: "Path traversal attempt blocked by edge rule" },
-      ];
-
-      const chosen = samplePaths[Math.floor(Math.random() * samplePaths.length)];
-      const ips = ["198.51.100.23", "185.220.101.42", "103.251.167.20", "194.26.29.112", "10.0.1.15"];
-
-      const newLog = {
-        id: `log-${Date.now()}`,
-        ts: timeStr,
-        source: src,
-        ip: ips[Math.floor(Math.random() * ips.length)],
-        ...chosen,
-      };
-
-      setLogs((prev) => [newLog, ...prev.slice(0, 49)]);
-    }, 2800);
-
-    return () => clearInterval(interval);
-  }, [isPaused]);
+    let mounted = true;
+    const fetchRecent = async () => {
+      try {
+        const token = getStoredToken();
+        if (!token) return;
+        const res = await axios.get(`${API_BASE_URL}/api/events?limit=30`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (mounted && res.data && Array.isArray(res.data.events)) {
+          const mapped = res.data.events.map((e) => {
+            const d = new Date(e.timestamp || e.ingested_at || Date.now());
+            const ts = !isNaN(d.getTime()) ? d.toTimeString().split(" ")[0] : "--:--:--";
+            return {
+              id: `evt-${e.id}`,
+              ts,
+              source: (e.source_type || e.source_name || "syslog").toLowerCase(),
+              ip: e.ip || "-",
+              method: e.process || "EVENT",
+              path: e.commandline || e.url || "-",
+              status: e.event_type === "web_finding" ? 403 : 200,
+              sev: e.event_type === "web_finding" ? "WARN" : "INFO",
+              msg: e.commandline || e.raw_payload || "Ingested event",
+              raw: e,
+            };
+          });
+          setLogs(mapped);
+        }
+      } catch (err) {
+        // Ingestion endpoint offline or unconfigured
+      }
+    };
+    fetchRecent();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const filteredLogs = logs.filter((l) => {
     if (filterSource === "ALL") return true;
@@ -87,14 +86,29 @@ export default function LiveTelemetryTicker() {
             Live Telemetry Stream
           </strong>
           <span style={{ color: "var(--color-text-muted)" }}>•</span>
-          <span style={{ color: isPaused ? "#f0b429" : "#3ee0a2", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: isPaused ? "#f0b429" : "#3ee0a2" }} />
-            {isPaused ? "PAUSED" : "STREAMING (18 eps)"}
-          </span>
-          <span style={{ color: "var(--color-text-muted)" }}>•</span>
-          <span style={{ color: "rgba(255, 255, 255, 0.7)", fontFamily: "monospace" }}>
-            Latest: [{logs[0]?.source?.toUpperCase()}] {logs[0]?.method} {logs[0]?.path} ({logs[0]?.status})
-          </span>
+          {logs.length === 0 ? (
+            <>
+              <span style={{ color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: "#6b7280" }} />
+                INACTIVE (0 eps)
+              </span>
+              <span style={{ color: "var(--color-text-muted)" }}>•</span>
+              <span style={{ color: "rgba(255, 255, 255, 0.5)", fontStyle: "italic" }}>
+                No live telemetry configured — connect a log source
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: isPaused ? "#f0b429" : "#3ee0a2", display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: isPaused ? "#f0b429" : "#3ee0a2" }} />
+                {isPaused ? "PAUSED" : "ACTIVE STREAM"}
+              </span>
+              <span style={{ color: "var(--color-text-muted)" }}>•</span>
+              <span style={{ color: "rgba(255, 255, 255, 0.7)", fontFamily: "monospace" }}>
+                Latest: [{logs[0]?.source?.toUpperCase()}] {logs[0]?.method} {logs[0]?.path} ({logs[0]?.status})
+              </span>
+            </>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -185,8 +199,26 @@ export default function LiveTelemetryTicker() {
             }}
           >
             {filteredLogs.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 24, color: "var(--color-text-muted)" }}>
-                No events in current buffer.
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flex: 1,
+                  padding: "36px 20px",
+                  color: "var(--color-text-muted)",
+                  textAlign: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: "2rem" }}>📡</span>
+                <strong style={{ color: "#fff", fontSize: "0.95rem" }}>
+                  No live telemetry configured — connect a log source
+                </strong>
+                <p style={{ maxWidth: 480, fontSize: "0.8rem", margin: 0, lineHeight: 1.5 }}>
+                  No active log drains or ingestion streams are currently transmitting events. Configure a syslog forwarder, hook a cloud log drain (Vercel, Cloudflare), or upload ingestion logs to stream real-time activity.
+                </p>
               </div>
             ) : (
               filteredLogs.map((l) => {

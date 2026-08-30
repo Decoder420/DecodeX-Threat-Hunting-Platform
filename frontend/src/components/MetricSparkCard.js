@@ -7,7 +7,7 @@ export default function MetricSparkCard({
   isPositiveDelta = true,
   hint,
   icon,
-  sparklineData = [12, 18, 15, 24, 21, 32, 28, 42, 38, 48],
+  sparklineData = [0, 0, 0, 0, 0, 0],
   glowColor = "#56c6ff",
 }) {
   // Generate smooth SVG path from sparklineData
