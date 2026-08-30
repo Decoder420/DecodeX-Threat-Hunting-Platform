@@ -24,11 +24,28 @@ beforeAll(() => {
   window.cancelAnimationFrame = (id) => clearTimeout(id);
 });
 
-test("renders CyberAttackGlobe with tactical controls and attack queue", () => {
-  render(<CyberAttackGlobe />);
+test("renders CyberAttackGlobe with clean empty state when no alerts provided", () => {
+  render(<CyberAttackGlobe alerts={[]} />);
 
   expect(screen.getByText(/Global Threat Actor Radar/i)).toBeInTheDocument();
   expect(screen.getByText(/Inbound Intercept Queue/i)).toBeInTheDocument();
-  expect(screen.getByText(/6 Active Vectors/i)).toBeInTheDocument();
-  expect(screen.getByText(/185.220.101.42/i)).toBeInTheDocument();
+  expect(screen.getByText(/0 Active Vectors/i)).toBeInTheDocument();
+  expect(screen.getByText(/No Active External Threat Vectors/i)).toBeInTheDocument();
+});
+
+test("renders CyberAttackGlobe with dynamic attack vector from alerts", () => {
+  const sampleAlerts = [
+    {
+      id: "alt-1",
+      ip: "198.51.100.42",
+      tactic: "SQL Injection Probe",
+      technique_id: "T1190",
+      severity: "CRITICAL",
+      host: "api.target.com",
+    },
+  ];
+  render(<CyberAttackGlobe alerts={sampleAlerts} />);
+
+  expect(screen.getByText(/1 Active Vector/i)).toBeInTheDocument();
+  expect(screen.getByText(/198.51.100.42/i)).toBeInTheDocument();
 });

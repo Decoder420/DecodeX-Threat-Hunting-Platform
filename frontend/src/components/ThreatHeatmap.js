@@ -7,25 +7,30 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 export default function ThreatHeatmap({ alerts = [] }) {
   const [hoveredCell, setHoveredCell] = useState(null);
 
-  // Generate realistic 7x24 matrix based on alert distributions
+  // Aggregate real 7x24 matrix based on actual alert timestamps
   const matrix = useMemo(() => {
+    const counts = {};
+    (alerts || []).forEach((a) => {
+      const ts = a.event_timestamp || a.timestamp;
+      if (!ts) return;
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return;
+      const jsDay = d.getDay(); // 0 is Sun, 1 is Mon...
+      const dayIdx = (jsDay + 6) % 7; // 0 is Mon, 6 is Sun
+      const hour = d.getHours();
+      const key = `${dayIdx}_${hour}`;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+
     const data = [];
     DAYS.forEach((day, dIdx) => {
       HOURS.forEach((hour) => {
-        // Base pseudo-realistic density with weekday business hour peaks
-        let count = 0;
-        if (dIdx < 5 && hour >= 9 && hour <= 18) {
-          count = Math.floor(Math.sin((hour - 9) / 3) * 18) + (dIdx * 3) + 4;
-        } else {
-          count = Math.floor(Math.random() * 6);
-        }
-        if (count < 0) count = 0;
-
+        const count = counts[`${dIdx}_${hour}`] || 0;
         let level = 0;
-        if (count > 20) level = 4; // Critical
-        else if (count > 12) level = 3; // High
-        else if (count > 5) level = 2; // Medium
-        else if (count > 0) level = 1; // Low
+        if (count >= 10) level = 4; // Critical
+        else if (count >= 5) level = 3; // High
+        else if (count >= 2) level = 2; // Medium
+        else if (count >= 1) level = 1; // Low
 
         data.push({ day, hour, count, level });
       });
@@ -71,7 +76,9 @@ export default function ThreatHeatmap({ alerts = [] }) {
             <Badge tone="ok">24x7 Matrix</Badge>
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: 4 }}>
-            Hourly distribution of security events, automated scanning spikes, and abnormal access bursts
+            {(!alerts || alerts.length === 0)
+              ? "No security events or alerts recorded in current window. Ingest logs or launch a scan to populate activity."
+              : "Hourly distribution of security events, automated scanning spikes, and abnormal access bursts"}
           </div>
         </div>
 
@@ -82,7 +89,7 @@ export default function ThreatHeatmap({ alerts = [] }) {
           </div>
         ) : (
           <div style={{ fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
-            Hover cells to inspect hourly counts
+            {(!alerts || alerts.length === 0) ? "No active alerts in window" : "Hover cells to inspect hourly counts"}
           </div>
         )}
       </div>

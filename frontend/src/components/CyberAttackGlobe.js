@@ -1,16 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
 
-// Realistic geo-coordinates for threat actors and monitored endpoints
-const ATTACK_VECTORS = [
-  { id: "vec-1", srcIp: "185.220.101.42", srcCity: "Moscow", srcCountry: "RU", srcLat: 55.75, srcLon: 37.61, target: "iuis.in", targetLat: 28.61, targetLon: 77.20, tactic: "SQL Injection Probe", mitre: "T1190", sev: "CRITICAL" },
-  { id: "vec-2", srcIp: "103.251.167.20", srcCity: "Beijing", srcCountry: "CN", srcLat: 39.90, srcLon: 116.40, target: "iuis.in", targetLat: 28.61, targetLon: 77.20, tactic: "Credential Stuffing", mitre: "T1110", sev: "HIGH" },
-  { id: "vec-3", srcIp: "194.26.29.112", srcCity: "Frankfurt", srcCountry: "DE", srcLat: 50.11, srcLon: 8.68, target: "newskothri.com", targetLat: 19.07, targetLon: 72.87, tactic: "Path Traversal (LFI)", mitre: "T1083", sev: "HIGH" },
-  { id: "vec-4", srcIp: "45.154.255.89", srcCity: "St. Petersburg", srcCountry: "RU", srcLat: 59.93, srcLon: 30.33, target: "hrms-iui-frontend.vercel.app", targetLat: 37.77, targetLon: -122.41, tactic: "SSRF on Edge API", mitre: "T1090", sev: "CRITICAL" },
-  { id: "vec-5", srcIp: "198.51.100.23", srcCity: "Ashburn", srcCountry: "US", srcLat: 39.04, srcLon: -77.48, target: "iuis.in", targetLat: 28.61, targetLon: 77.20, tactic: "Automated DAST Fuzzer", mitre: "T1595", sev: "MEDIUM" },
-  { id: "vec-6", srcIp: "177.54.144.12", srcCity: "São Paulo", srcCountry: "BR", srcLat: -23.55, srcLon: -46.63, target: "newskothri.com", targetLat: 19.07, targetLon: 72.87, tactic: "Botnet Scraper", mitre: "T1071", sev: "LOW" },
-];
+
 
 // High-fidelity continental landmass polygons (lat, lon coordinates)
 const CONTINENTS = [
@@ -80,11 +72,9 @@ const MAJOR_CITIES = [
   { name: "Frankfurt", lat: 50.11, lon: 8.68 },
   { name: "São Paulo", lat: -23.55, lon: -46.63 },
   { name: "Cairo", lat: 30.04, lon: 31.23 },
-  { name: "San Francisco", lat: 37.77, lon: -122.41 },
-  { name: "Dubai", lat: 25.20, lon: 55.27 },
 ];
 
-export default function CyberAttackGlobe() {
+export default function CyberAttackGlobe({ alerts = [] }) {
   const canvasRef = useRef(null);
   const rotationRef = useRef(0);
   const particleProgressRef = useRef(0);
@@ -93,6 +83,39 @@ export default function CyberAttackGlobe() {
   const [selectedAttack, setSelectedAttack] = useState(null);
   const isDraggingRef = useRef(false);
   const lastMouseXRef = useRef(0);
+
+  // Compute live attack vectors dynamically from genuine alert telemetry
+  const attackVectors = useMemo(() => {
+    if (!alerts || alerts.length === 0) return [];
+    const vectors = [];
+    alerts.forEach((a, idx) => {
+      const ip = a.ip || a.source_ip || "";
+      if (!ip) return;
+      const octets = ip.split(".").map((o) => parseInt(o, 10) || 0);
+      const lat = ((octets[0] * 7 + (octets[1] || 0)) % 140) - 70;
+      const lon = (((octets[2] || 0) * 13 + (octets[3] || 0)) % 360) - 180;
+      vectors.push({
+        id: a.id || `vec-${idx}`,
+        srcIp: ip,
+        srcCity: a.geo_city || (ip.startsWith("192.") || ip.startsWith("10.") ? "Internal" : "External Node"),
+        srcCountry: a.geo_country || "EXT",
+        srcLat: lat,
+        srcLon: lon,
+        target: a.host || a.target || "Monitored Asset",
+        targetLat: 28.61,
+        targetLon: 77.20,
+        tactic: a.tactic || a.rule_name || "Security Alert",
+        mitre: a.technique_id || "T1190",
+        sev: (a.severity || "MEDIUM").toUpperCase(),
+      });
+    });
+    return vectors.slice(0, 10);
+  }, [alerts]);
+
+  const attackVectorsRef = useRef(attackVectors);
+  useEffect(() => {
+    attackVectorsRef.current = attackVectors;
+  }, [attackVectors]);
 
   // Orthographic Projection Helper: Lat/Lon -> Screen X/Y & 3D Depth
   const project = (lat, lon, rot, radius, cx, cy) => {
@@ -294,7 +317,7 @@ export default function CyberAttackGlobe() {
       ctx.stroke();
 
       // 9. Elevated 3D Threat Trajectory Arcs & Particle Pulses
-      ATTACK_VECTORS.forEach((vec, idx) => {
+      (attackVectorsRef.current || []).forEach((vec, idx) => {
         const src = project(vec.srcLat, vec.srcLon, rotation, radius, cx, cy);
         const dst = project(vec.targetLat, vec.targetLon, rotation, radius, cx, cy);
 
@@ -442,7 +465,9 @@ export default function CyberAttackGlobe() {
               </button>
             ))}
           </div>
-          <Badge tone="danger">6 Active Vectors</Badge>
+          <Badge tone={attackVectors.length > 0 ? "danger" : "info"}>
+            {attackVectors.length} Active {attackVectors.length === 1 ? "Vector" : "Vectors"}
+          </Badge>
         </div>
       </div>
 
@@ -490,7 +515,26 @@ export default function CyberAttackGlobe() {
             Inbound Intercept Queue
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
-            {ATTACK_VECTORS.map((vec) => {
+            {attackVectors.length === 0 ? (
+              <div
+                style={{
+                  padding: "24px 14px",
+                  borderRadius: 8,
+                  background: "rgba(0, 0, 0, 0.25)",
+                  border: "1px dashed rgba(255, 255, 255, 0.1)",
+                  textAlign: "center",
+                  color: "var(--color-text-muted)",
+                  fontSize: "0.82rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                <b>No Active External Threat Vectors</b>
+                <div style={{ marginTop: 6, fontSize: "0.74rem" }}>
+                  Inbound threat trajectories will plot automatically when external alert IPs or DAST web attack vectors are detected.
+                </div>
+              </div>
+            ) : (
+              attackVectors.map((vec) => {
               const isSelected = selectedAttack?.id === vec.id;
               const isCrit = vec.sev === "CRITICAL";
               return (
@@ -523,7 +567,7 @@ export default function CyberAttackGlobe() {
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
       </div>

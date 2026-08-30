@@ -9,7 +9,7 @@ import yara
 import yaml
 from sqlalchemy import delete
 
-from .db import Alert, Event, IOC, IngestionState, SuppressionRule
+from .db import Alert, Event, IOC, IngestionState, SuppressionRule, utcnow
 from .feed_collector import FeedCollector
 from .scanner import scanner
 from .sigma_importer import sigma_to_local_rules
@@ -18,18 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_LOG_DIR = PROJECT_ROOT / "data" / "logs"
 DEFAULT_RULE_FILE = PROJECT_ROOT / "hunting_rules.yml"
 
-IOC_FEEDS = [
-    {"type": "ip", "value": "45.148.10.12", "source": "abuse.ch"},
-    {"type": "ip", "value": "185.220.101.1", "source": "abuse.ch"},
-    {"type": "domain", "value": "malicious.example.com", "source": "abuse.ch"},
-    {"type": "hash", "value": "44d88612fea8a8f36de82e1278abb02f", "source": "malwaredb"},
-]
+IOC_FEEDS: list[dict] = []
 
 CASE_STATUSES = ["Open", "In Progress", "Quarantine", "False Positive", "Resolved"]
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def normalize_event_record(record: dict, source_name: str, source_type: str) -> Event | None:
@@ -616,7 +607,7 @@ def import_sigma_rules(sigma_path: Path, rule_file: Path = DEFAULT_RULE_FILE) ->
 
 
 def refresh_hunting_state(db, evaluator, broadcast_fn=None) -> dict[str, int]:
-    iocs_added = seed_iocs(db)
+    iocs_added = 0
     events_added, events_skipped, _ = ingest_logs(db)
     ioc_sets = build_ioc_sets(db.query(IOC).all())
     alerts = evaluate_events(db, db.query(Event).order_by(Event.timestamp.asc()).all(), evaluator, ioc_sets)
