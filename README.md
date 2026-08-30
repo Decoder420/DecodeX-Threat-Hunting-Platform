@@ -158,7 +158,7 @@ The easiest way to run the entire platform (Backend, Frontend, OWASP ZAP, Nginx)
 
 4. **Access the Platform**:
    - **URL**: `http://localhost`
-   - **Default Admin**: `admin` / `[REDACTED_HISTORICAL_ADMIN_PASSWORD]` (or the password configured in `backend/.env`)
+   - **Default Admin**: `admin` / Password configured in `backend/.env` (see `backend/.env.example`)
    - **OWASP ZAP Daemon**: Runs internally on port `8080` (accessible to the backend scanner)
 
 ---

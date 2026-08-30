@@ -98,9 +98,11 @@ echo ""
 echo "2. INTER-CONTAINER CONNECTIVITY"
 echo "---"
 
-# Backend → ZAP
-echo "Backend → ZAP:"
-if docker exec threat_hunt_backend curl -s http://zap:8080/json/core/view/version?apikey=[REDACTED_HISTORICAL_ZAP_KEY] &>/dev/null; then
+ZAP_KEY="$ZAP_API_KEY"
+if [ -z "$ZAP_KEY" ]; then
+    ZAP_KEY="$(docker exec threat_hunt_backend printenv ZAP_API_KEY 2>/dev/null || echo '')"
+fi
+if docker exec threat_hunt_backend curl -s "http://zap:8080/json/core/view/version?apikey=${ZAP_KEY}" &>/dev/null; then
     echo -e "${GREEN}✓${NC}   Backend can reach ZAP API"
 else
     echo -e "${RED}✗${NC}   Backend cannot reach ZAP"
