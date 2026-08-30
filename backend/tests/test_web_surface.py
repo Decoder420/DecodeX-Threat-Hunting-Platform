@@ -13,7 +13,7 @@ SRC_ROOT = BACKEND_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-_tmp = tempfile.TemporaryDirectory(prefix="th_surface_", ignore_cleanup_errors=True)
+_tmp_dir = tempfile.mkdtemp(prefix="th_surface_")
 os.environ["TH_ADMIN_USERNAME"] = "admin"
 os.environ["TH_ADMIN_PASSWORD"] = "AdminPass123!"
 os.environ["TH_ANALYST_USERNAME"] = "analyst"
@@ -21,12 +21,11 @@ os.environ["TH_ANALYST_PASSWORD"] = "AnalystPass123!"
 os.environ["TH_VIEWER_USERNAME"] = "viewer"
 os.environ["TH_VIEWER_PASSWORD"] = "ViewerPass123!"
 os.environ["WEBSCAN_ALLOW_PRIVATE_TARGETS"] = "true"
-os.environ["WEBSCAN_DEMO_MODE"] = "true"
 os.environ.pop("DATABASE_URL", None)
 
 from th import db as dbmod  # noqa: E402
 
-dbmod.DATABASE_PATH = Path(_tmp.name) / "test_surface.db"
+dbmod.DATABASE_PATH = Path(_tmp_dir) / "test_surface.db"
 dbmod.engine = dbmod.create_engine(
     f"sqlite:///{dbmod.DATABASE_PATH}",
     connect_args={"check_same_thread": False, "timeout": 30},
@@ -41,21 +40,21 @@ from th.webapp import app  # noqa: E402
 from th.db import WebScan, WebTarget, get_db  # noqa: E402
 from th.web_scanner.config import SCAN_PROFILES, max_severity  # noqa: E402
 from th.web_scanner.surface import AttackSurfaceBuilder, build_tree_payload  # noqa: E402
-from th.web_scanner.demo import demo_surface  # noqa: E402
 
 
 class SurfaceUnitTests(unittest.TestCase):
-    def test_profiles_include_new_ones(self):
-        for name in ("PASSIVE", "API", "LAB", "DEMO", "AUTHENTICATED"):
+    def test_profiles_include_standard_ones(self):
+        for name in ("PASSIVE", "API", "LAB", "AUTHENTICATED", "QUICK", "STANDARD", "DEEP"):
             self.assertIn(name, SCAN_PROFILES)
+        self.assertNotIn("DEMO", SCAN_PROFILES)
 
     def test_max_severity(self):
         self.assertEqual(max_severity("LOW", "HIGH"), "HIGH")
         self.assertEqual(max_severity("CRITICAL", "INFO"), "CRITICAL")
 
-    def test_demo_surface_labeled(self):
-        data = demo_surface("https://example.com", "example.com")
-        self.assertTrue(all("[DEMO]" in f["title"] for f in data["findings"]))
+    def test_zero_demo_profile_available(self):
+        # DecodeX platform must never offer synthetic DEMO profile
+        self.assertNotIn("DEMO", SCAN_PROFILES)
 
 
 class SurfaceApiTests(unittest.TestCase):
