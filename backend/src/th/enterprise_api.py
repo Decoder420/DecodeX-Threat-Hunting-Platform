@@ -1108,6 +1108,73 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         payload["resolved_ips"] = resolved_ips
         return jsonify(payload), 200
 
+    @app.route("/api/web-targets/<int:target_id>/import-openapi", methods=["POST"])
+    @login_required
+    @require_permission("webscan.run")
+    def import_target_openapi(target_id):
+        db = get_db()
+        target = db.get(WebTarget, target_id)
+        if not target:
+            return _err("NOT_FOUND", "Target not found.", 404)
+
+        data = request.get_json(silent=True) or {}
+        spec_url = (data.get("spec_url") or "").strip()
+        spec_content = data.get("spec_content") or ""
+
+        from .web_scanner.api_discovery import parse_openapi_spec
+        from .web_scanner.zap_client import zap_client
+
+        endpoints = []
+        meta = {}
+        err = None
+
+        if spec_url:
+            try:
+                validate_scan_url(spec_url, allow_private=WEBSCAN_ALLOW_PRIVATE_TARGETS)
+                import requests as _req
+                resp = _req.get(spec_url, timeout=10, headers={"User-Agent": "DecodeX-OpenAPI/2.0"})
+                if resp.status_code >= 400:
+                    return _err("FETCH_FAILED", f"Remote specification returned HTTP {resp.status_code}", 400)
+                spec_content = resp.text
+            except SSRFError as exc:
+                return _err("SSRF_BLOCKED", str(exc), 400)
+            except Exception as exc:
+                return _err("FETCH_FAILED", f"Failed fetching OpenAPI spec: {exc}", 400)
+
+        if not spec_content:
+            return _err("BAD_REQUEST", "Either spec_url or spec_content is required.", 400)
+
+        endpoints, meta, err = parse_openapi_spec(spec_content, base_url=target.url)
+        if err:
+            return _err("PARSE_ERROR", err, 400)
+
+        # If ZAP is available and spec_url is present, trigger ZAP OpenAPI import as well
+        zap_imported = []
+        if spec_url:
+            try:
+                z_urls, z_err = zap_client.import_openapi_spec(spec_url, allow_private=WEBSCAN_ALLOW_PRIVATE_TARGETS)
+                zap_imported = z_urls
+            except Exception:
+                pass
+
+        write_audit(
+            db,
+            action="web_target.import_openapi",
+            user=g.current_user,
+            resource_type="web_target",
+            resource_id=target.id,
+            details=f"Imported {len(endpoints)} API endpoints ({meta.get('title')})",
+        )
+
+        return jsonify({
+            "success": True,
+            "target_id": target.id,
+            "metadata": meta,
+            "endpoints": endpoints,
+            "count": len(endpoints),
+            "zap_discovered_urls": zap_imported,
+        }), 200
+
     @app.route("/api/web-targets/<int:target_id>/scan", methods=["POST"])
     @app.route("/api/web-scans", methods=["POST"])
     @login_required
@@ -1581,6 +1648,30 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             "profiles": SCAN_PROFILES,
         })
 
+    @app.route("/api/scanner/zap/status")
+    @app.route("/api/web/scanner/zap/status")
+    @login_required
+    @require_permission("webscan.read")
+    def zap_daemon_status():
+        from .web_scanner import zap_daemon
+        return jsonify(zap_daemon.get_status())
+
+    @app.route("/api/scanner/zap/daemon/start", methods=["POST"])
+    @login_required
+    @require_permission("admin")
+    def zap_daemon_start():
+        from .web_scanner import zap_daemon
+        ok = zap_daemon.start_local_daemon()
+        return jsonify({"success": ok, "status": zap_daemon.get_status()}), (200 if ok else 500)
+
+    @app.route("/api/scanner/zap/daemon/stop", methods=["POST"])
+    @login_required
+    @require_permission("admin")
+    def zap_daemon_stop():
+        from .web_scanner import zap_daemon
+        ok = zap_daemon.stop_local_daemon()
+        return jsonify({"success": ok, "status": zap_daemon.get_status()})
+
     @app.route("/api/web/attack-surface")
     @login_required
     @require_permission("webscan.read")
@@ -1873,69 +1964,62 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
             .all()
         )
 
+        target_data = _serialize_target(target)
+        # Ensure additional cockpit fields are available
+        target_data.update({
+            "scope": getattr(target, "scope", ""),
+            "authorized_by": getattr(target, "authorized_by", "") or "",
+            "authorized_at": target.authorized_at.isoformat() if getattr(target, "authorized_at", None) else None,
+            "risk_score": getattr(target, "risk_score", 0) or 0,
+        })
+
+        findings_data = []
+        for f in findings:
+            item = _serialize_finding(f, detail=True)
+            # Add backwards-compatible alias fields for cockpit UI
+            item["param"] = getattr(f, "parameter", "") or ""
+            item["solution"] = getattr(f, "recommendation", "") or getattr(f, "remediation", "") or ""
+            item["cve_id"] = getattr(f, "cve", "") or None
+            item["cwe_id"] = getattr(f, "cwe", "") or None
+            findings_data.append(item)
+
+        scans_data = []
+        for s in scans:
+            item = _serialize_scan(s, include_detail=True)
+            # Add backwards-compatible alias fields for cockpit UI
+            item["completed_at"] = s.finished_at.isoformat() if getattr(s, "finished_at", None) else None
+            scans_data.append(item)
+
+        nodes_data = []
+        for n in discovered_nodes:
+            nodes_data.append({
+                "id": n.id,
+                "url": getattr(n, "url", "") or "",
+                "method": "GET",
+                "status_code": getattr(n, "http_status", 200) or 200,
+                "discovered_at": n.discovered_at.isoformat() if getattr(n, "discovered_at", None) else None,
+            })
+
+        alerts_data = []
+        for a in correlated_alerts:
+            alerts_data.append({
+                "id": a.id,
+                "description": a.description,
+                "severity": a.severity,
+                "tactic": getattr(a, "tactic", "") or "",
+                "technique_id": getattr(a, "technique_id", "") or "",
+                "host": a.host,
+                "risk_score": getattr(a, "risk_score", 0) or 0,
+                "timestamp": a.event_timestamp.isoformat() if getattr(a, "event_timestamp", None) else None,
+            })
+
         return jsonify({
-            "target": {
-                "id": target.id,
-                "name": target.name,
-                "url": target.url,
-                "scope": getattr(target, "scope", ""),
-                "environment": getattr(target, "environment", "lab"),
-                "authorization_status": target.authorization_status,
-                "authorized_by": target.authorized_by,
-                "authorized_at": target.authorized_at.isoformat() if target.authorized_at else None,
-                "risk_score": getattr(target, "risk_score", 0),
-                "created_at": target.created_at.isoformat() if target.created_at else None,
-            },
-            "findings_count": len(findings),
-            "findings": [
-                {
-                    "id": f.id,
-                    "scan_id": f.scan_id,
-                    "title": f.title,
-                    "severity": f.severity,
-                    "risk_score": getattr(f, "risk_score", 0),
-                    "cve_id": getattr(f, "cve_id", None),
-                    "cwe_id": getattr(f, "cwe_id", None),
-                    "url": f.url,
-                    "param": f.param,
-                    "method": f.method,
-                    "status": getattr(f, "status", "OPEN"),
-                    "solution": getattr(f, "solution", ""),
-                    "evidence": getattr(f, "evidence", "")[:300] if getattr(f, "evidence", None) else "",
-                } for f in findings
-            ],
-            "scans": [
-                {
-                    "id": s.id,
-                    "scan_profile": s.scan_profile,
-                    "status": s.status,
-                    "progress": getattr(s, "progress", 100),
-                    "started_at": s.started_at.isoformat() if s.started_at else None,
-                    "completed_at": s.completed_at.isoformat() if s.completed_at else None,
-                    "findings_count": (getattr(s, "critical_count", 0) or 0) + (getattr(s, "high_count", 0) or 0) + (getattr(s, "medium_count", 0) or 0) + (getattr(s, "low_count", 0) or 0),
-                } for s in scans
-            ],
-            "attack_surface": [
-                {
-                    "id": n.id,
-                    "url": n.url,
-                    "method": getattr(n, "method", "GET"),
-                    "status_code": getattr(n, "status_code", 200),
-                    "discovered_at": n.discovered_at.isoformat() if n.discovered_at else None,
-                } for n in discovered_nodes
-            ],
-            "correlated_alerts": [
-                {
-                    "id": a.id,
-                    "description": a.description,
-                    "severity": a.severity,
-                    "tactic": a.tactic,
-                    "technique_id": a.technique_id,
-                    "host": a.host,
-                    "risk_score": getattr(a, "risk_score", 0),
-                    "timestamp": a.event_timestamp.isoformat() if a.event_timestamp else None,
-                } for a in correlated_alerts
-            ]
+            "target": target_data,
+            "findings_count": len(findings_data),
+            "findings": findings_data,
+            "scans": scans_data,
+            "attack_surface": nodes_data,
+            "correlated_alerts": alerts_data,
         })
 
     # -------- AI Copilot Endpoints --------

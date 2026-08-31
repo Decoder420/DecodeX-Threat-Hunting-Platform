@@ -84,15 +84,25 @@ if [ ! -f "${ENV_FILE}" ]; then
     echo "     Do NOT use these in production without manual review."
 else
     echo -e "${GREEN}[OK] Existing .env file detected.${NC}"
-    # Ensure backend/.env exists
     if [ ! -f "${BACKEND_ENV_FILE}" ]; then
         cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
     fi
 fi
 
-# 3. Start Docker Compose Stack
+# 3. Initialize Host Files & Data Directories
+if [ -d "${ROOT_DIR}/backend/threat_hunting.db" ]; then
+    rm -rf "${ROOT_DIR}/backend/threat_hunting.db"
+fi
+if [ ! -f "${ROOT_DIR}/backend/threat_hunting.db" ]; then
+    touch "${ROOT_DIR}/backend/threat_hunting.db"
+fi
+mkdir -p "${ROOT_DIR}/backend/data/logs"
+
+# 4. Start Docker Compose Stack
 echo ""
 echo -e "${BLUE}[INFO] Launching DecodeX containers via Docker Compose...${NC}"
+# Clean up any stale or conflicting existing containers first
+docker compose down --remove-orphans &>/dev/null || true
 docker compose up -d
 
 # 4. Wait briefly for backend health probe

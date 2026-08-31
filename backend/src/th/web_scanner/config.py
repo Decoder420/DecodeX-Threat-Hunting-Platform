@@ -66,6 +66,8 @@ SCAN_PROFILES = {
         "nmap": False,
         "zap": False,
         "api_discovery": True,
+        "max_depth": 2,
+        "budget_seconds": 60,
     },
     "BASELINE": {
         **_BASE,
@@ -76,6 +78,8 @@ SCAN_PROFILES = {
         "api_discovery": True,
         "policy": "BASELINE",
         "alert_threshold": "HIGH",
+        "max_depth": 3,
+        "budget_seconds": 120,
     },
     "STANDARD": {
         **_BASE,
@@ -85,6 +89,8 @@ SCAN_PROFILES = {
         "api_discovery": True,
         "policy": "DEFAULT",
         "alert_threshold": "MEDIUM",
+        "max_depth": 4,
+        "budget_seconds": 300,
     },
     "THOROUGH": {
         **_BASE,
@@ -96,6 +102,8 @@ SCAN_PROFILES = {
         "policy": "THOROUGH",
         "alert_threshold": "LOW",
         "attack_strength": "HIGH",
+        "max_depth": 10,
+        "budget_seconds": 900,
     },
     "DEEP": {
         **_BASE,
@@ -107,6 +115,8 @@ SCAN_PROFILES = {
         "policy": "THOROUGH",
         "alert_threshold": "LOW",
         "attack_strength": "HIGH",
+        "max_depth": 8,
+        "budget_seconds": 600,
     },
     "PASSIVE": {
         **_BASE,
@@ -119,6 +129,8 @@ SCAN_PROFILES = {
         "passive": True,
         "tls": True,
         "headers": True,
+        "max_depth": 1,
+        "budget_seconds": 30,
     },
     "API": {
         **_BASE,
@@ -128,6 +140,8 @@ SCAN_PROFILES = {
         "sitemap": True,
         "nmap": False,
         "zap": False,
+        "max_depth": 3,
+        "budget_seconds": 180,
     },
     "AUTHENTICATED": {
         **_BASE,
@@ -136,6 +150,8 @@ SCAN_PROFILES = {
         "api_discovery": True,
         "sitemap": True,
         "authenticated": True,
+        "max_depth": 5,
+        "budget_seconds": 300,
     },
     "LAB": {
         **_BASE,
@@ -146,6 +162,8 @@ SCAN_PROFILES = {
         "api_discovery": True,
         "sitemap": True,
         "lab": True,
+        "max_depth": 10,
+        "budget_seconds": 900,
     },
 }
 

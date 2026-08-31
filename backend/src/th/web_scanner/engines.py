@@ -266,6 +266,7 @@ def run_zap_passive(
     url: str,
     *,
     timeout: int = 60,
+    max_depth: int = 5,
     cancel_check: callable = None,
     progress_callback: callable = None,
     allow_private: bool = WEBSCAN_ALLOW_PRIVATE_TARGETS,
@@ -295,7 +296,8 @@ def run_zap_passive(
     spider_urls, err = zap_client.run_spider(
         url,
         context_name=context_name,
-        max_children=50,
+        max_children=min(200, max(30, max_depth * 20)),
+        max_depth=max_depth,
         timeout=timeout,
         cancel_check=cancel_check,
         progress_callback=progress_callback,

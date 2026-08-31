@@ -1,36 +1,18 @@
 rules:
 
-# 🚨 1. Suspicious PowerShell with Encoding + Network
-- id: advanced_powershell_attack
-  severity: high
-  description: PowerShell execution with encoded command and external IP
-  technique_id: T1059.001
-  tactic: Execution
-  conditions:
-    - type: event_field_contains
-      field: process
-      value: powershell
-    - type: event_field_contains
-      field: commandline
-      value: encoded
-    - type: ioc_ip_match
+# =============================================================================
+# DecodeX Threat Hunting Platform — Enterprise MITRE ATT&CK Detection Matrix
+# Complete Coverage: 12 Tactics / 42 Techniques (100.0% Tactical Depth)
+# =============================================================================
 
-# 🚨 2. Multiple Failed Logins (Brute Force)
-- id: brute_force_attempt
+# -----------------------------------------------------------------------------
+# 1. INITIAL ACCESS (TA0001)
+# -----------------------------------------------------------------------------
+- id: valid_accounts_external_login
   severity: high
-  description: Multiple failed login attempts detected
-  technique_id: T1110
-  tactic: Credential Access
-  conditions:
-    - type: event_field_contains
-      field: commandline
-      value: failed login
-
-# 🚨 3. Suspicious Admin Login from External IP
-- id: suspicious_admin_login
-  severity: high
-  description: Admin login from non-private IP
+  description: Administrative or service account authentication from untrusted origin
   technique_id: T1078
+  technique_name: Valid Accounts
   tactic: Initial Access
   conditions:
     - type: event_field_contains
@@ -38,108 +20,489 @@ rules:
       value: admin
     - type: ioc_ip_match
 
-# 🚨 4. Living-off-the-Land Binary Abuse
-- id: lolbin_abuse
+- id: exploit_public_facing_app
+  severity: critical
+  description: Potential web exploitation attempt against public-facing application
+  technique_id: T1190
+  technique_name: Exploit Public-Facing Application
+  tactic: Initial Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["log4j", "jndi:", "union select", "etc/passwd", "win.ini", "../.."]
+
+- id: spearphishing_attachment_execution
+  severity: high
+  description: Execution of suspicious payload originating from email attachments or disk images
+  technique_id: T1566
+  technique_name: Phishing
+  tactic: Initial Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: [".iso", ".vhd", ".hta", ".lnk", ".chm", ".wsf"]
+
+- id: external_remote_services_ingress
   severity: medium
-  description: Suspicious usage of LOLBins like cmd, powershell, wmic
-  technique_id: T1218
-  tactic: Defense Evasion
+  description: Remote access connection initiated from external unauthorized network
+  technique_id: T1133
+  technique_name: External Remote Services
+  tactic: Initial Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["vpn_login", "rdp_inbound", "ssh_ingress", "gateway_auth"]
+    - type: ioc_ip_match
+
+# -----------------------------------------------------------------------------
+# 2. EXECUTION (TA0002)
+# -----------------------------------------------------------------------------
+- id: advanced_powershell_attack
+  severity: high
+  description: PowerShell execution with encoded command or download cradle
+  technique_id: T1059.001
+  technique_name: "Command and Scripting Interpreter: PowerShell"
+  tactic: Execution
+  conditions:
+    - type: event_field_contains
+      field: process
+      value: powershell
+    - type: event_field_contains_any
+      field: commandline
+      values: ["-enc", "encodedcommand", "downloadstring", "iex", "-w hidden", "bypass"]
+
+- id: windows_command_shell_execution
+  severity: medium
+  description: Execution of command shell for automated reconnaissance or staging
+  technique_id: T1059.003
+  technique_name: "Command and Scripting Interpreter: Windows Command Shell"
+  tactic: Execution
   conditions:
     - type: event_field_contains
       field: process
       value: cmd
-    - type: event_field_contains
+    - type: event_field_contains_any
       field: commandline
-      value: /c
+      values: ["/c", "/k", "cmd.exe /r"]
 
-# 🚨 5. Suspicious Network Beaconing
-- id: beaconing_activity
-  severity: medium
-  description: Repeated outbound connections to IOC IP
-  technique_id: T1071
-  tactic: Command and Control
-  conditions:
-    - type: ioc_ip_match
-
-# 🚨 6. Suspicious Hash Execution (Malware)
 - id: malware_hash_detected
   severity: critical
-  description: Execution of known malicious file hash
+  description: Execution of known malicious payload file hash
   technique_id: T1204
+  technique_name: "User Execution: Malicious File"
   tactic: Execution
   conditions:
     - type: ioc_hash_match
 
-# 🚨 7. Lateral Movement Detection
-- id: lateral_movement_smb
+- id: wmi_process_creation
   severity: high
-  description: Possible lateral movement using SMB
-  technique_id: T1021
-  tactic: Lateral Movement
+  description: Process created via Windows Management Instrumentation (WMI)
+  technique_id: T1047
+  technique_name: Windows Management Instrumentation
+  tactic: Execution
   conditions:
-    - type: event_field_contains
+    - type: event_field_contains_any
       field: commandline
-      value: \\
+      values: ["wmic process call create", "wmic.exe process", "get-wmiobject", "invoke-wmimethod"]
 
-# 🚨 8. Privilege Escalation Attempt
-- id: privilege_escalation
-  severity: high
-  description: Suspicious privilege escalation attempt
-  technique_id: T1068
-  tactic: Privilege Escalation
-  conditions:
-    - type: event_field_contains
-      field: commandline
-      value: runas
-
-# 🚨 9. Data Exfiltration Indicator
-- id: data_exfiltration
-  severity: critical
-  description: Possible data exfiltration activity
-  technique_id: T1041
-  tactic: Exfiltration
-  conditions:
-    - type: event_field_contains
-      field: commandline
-      value: ftp
-
-# 🚨 10. Suspicious Scheduled Task Creation
+# -----------------------------------------------------------------------------
+# 3. PERSISTENCE (TA0003)
+# -----------------------------------------------------------------------------
 - id: persistence_task
   severity: high
-  description: Suspicious scheduled task creation
+  description: Scheduled task creation or modification for persistent execution
   technique_id: T1053
+  technique_name: Scheduled Task/Job
   tactic: Persistence
   conditions:
-    - type: event_field_contains
+    - type: event_field_contains_any
       field: commandline
-      value: schtasks
+      values: ["schtasks", "crontab", "/etc/cron", "at.exe"]
 
-# 🚨 11. Encoded PowerShell (-enc)
-- id: encoded_powershell
+- id: create_or_modify_system_process
   severity: high
-  description: Possible encoded PowerShell execution
-  technique_id: T1059.001
-  technique_name: "Command and Scripting Interpreter: PowerShell"
-  tactic: Execution
+  description: New system service or daemon registered for persistent execution
+  technique_id: T1543
+  technique_name: Create or Modify System Process
+  tactic: Persistence
   conditions:
-    - type: event_field_contains
-      field: process
-      value: powershell
-    - type: event_field_contains
+    - type: event_field_contains_any
       field: commandline
-      value: "-enc"
+      values: ["sc create", "sc.exe create", "systemctl enable", "launchctl load"]
 
-# 🚨 12. Hidden PowerShell Window
-- id: hidden_powershell
-  severity: medium
-  description: Hidden PowerShell window execution
-  technique_id: T1059.001
-  technique_name: "Command and Scripting Interpreter: PowerShell"
-  tactic: Execution
+- id: local_account_creation
+  severity: high
+  description: Creation of unauthorized local or domain user account
+  technique_id: T1136
+  technique_name: Create Account
+  tactic: Persistence
   conditions:
-    - type: event_field_contains
-      field: process
-      value: powershell
-    - type: event_field_contains
+    - type: event_field_contains_any
       field: commandline
-      value: "-w hidden"
+      values: ["net user /add", "useradd", "adduser", "new-localuser", "dsadd user"]
+
+- id: registry_run_keys_autostart
+  severity: high
+  description: Modification of registry autorun keys or startup folders
+  technique_id: T1547
+  technique_name: Boot or Logon Autostart Execution
+  tactic: Persistence
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["currentversion\\run", "runonce", "startup", "init.d", "rc.local"]
+
+# -----------------------------------------------------------------------------
+# 4. PRIVILEGE ESCALATION (TA0004)
+# -----------------------------------------------------------------------------
+- id: privilege_escalation_runas
+  severity: high
+  description: Elevation attempt utilizing runas or known privilege escalation utilities
+  technique_id: T1068
+  technique_name: Exploitation for Privilege Escalation
+  tactic: Privilege Escalation
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["runas /user", "privilege::debug", "cve-202", "cve-2023", "cve-2024"]
+
+- id: uac_bypass_abuse_elevation
+  severity: high
+  description: Bypass User Account Control (UAC) or sudo abuse for unprompted elevation
+  technique_id: T1548
+  technique_name: Abuse Elevation Control Mechanism
+  tactic: Privilege Escalation
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["fodhelper.exe", "eventvwr.exe", "sdclt.exe", "sudoers", "doas"]
+
+- id: process_injection_activity
+  severity: critical
+  description: Memory injection or thread manipulation into legitimate host processes
+  technique_id: T1055
+  technique_name: Process Injection
+  tactic: Privilege Escalation
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["mavinject", "ptrace", "virtualallocex", "createremotethread", "writeprocessmemory"]
+
+# -----------------------------------------------------------------------------
+# 5. DEFENSE EVASION (TA0005)
+# -----------------------------------------------------------------------------
+- id: lolbin_proxy_execution
+  severity: medium
+  description: Living-off-the-Land Binary (LOLBin) proxy execution detected
+  technique_id: T1218
+  technique_name: System Binary Proxy Execution
+  tactic: Defense Evasion
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["certutil -urlcache", "mshta.exe", "rundll32.exe", "regsvr32.exe /s", "installutil.exe"]
+
+- id: impair_security_defenses
+  severity: critical
+  description: Tampering with or disabling endpoint security agents and logging
+  technique_id: T1562
+  technique_name: Impair Defenses
+  tactic: Defense Evasion
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["disablerealtimemonitoring", "stop-service windefend", "fltmc unload", "kill -9", "set-mppreference"]
+
+- id: clear_event_logs
+  severity: high
+  description: Clearing security or system audit logs to remove forensic indicators
+  technique_id: T1070
+  technique_name: Indicator Removal
+  tactic: Defense Evasion
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["wevtutil cl", "wevtutil.exe cl", "clear-eventlog", "rm -rf /var/log", "history -c"]
+
+- id: obfuscated_payload_information
+  severity: high
+  description: Decoding or decompression of obfuscated commands and files
+  technique_id: T1027
+  technique_name: Obfuscated/Encoded Files or Information
+  tactic: Defense Evasion
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["certutil -decode", "frombase64string", "[convert]::frombase64", "base64 -d", "openssl enc -d"]
+
+# -----------------------------------------------------------------------------
+# 6. CREDENTIAL ACCESS (TA0006)
+# -----------------------------------------------------------------------------
+- id: brute_force_attempt
+  severity: high
+  description: Authentication failures indicative of brute force or credential stuffing
+  technique_id: T1110
+  technique_name: Brute Force
+  tactic: Credential Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["failed login", "invalid password", "authentication failure", "logon_failure", "4625"]
+
+- id: os_credential_dumping_lsass
+  severity: critical
+  description: Memory dumping of LSASS process or SAM database extraction
+  technique_id: T1003
+  technique_name: OS Credential Dumping
+  tactic: Credential Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["lsass", "comsvcs.dll", "procdump", "mimikatz", "sekurlsa", "sam._", "ntds.dit"]
+
+- id: credentials_from_password_stores
+  severity: high
+  description: Accessing browser credential databases or credential manager vaults
+  technique_id: T1555
+  technique_name: Credentials from Password Stores
+  tactic: Credential Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["login data", "key4.db", "vaultcmd", "vaultcli", "security find-generic-password"]
+
+- id: unsecured_credentials_discovery
+  severity: medium
+  description: Searching files for plaintext credentials, API tokens, or private keys
+  technique_id: T1552
+  technique_name: Unsecured Credentials
+  tactic: Credential Access
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["findstr /s /i password", "grep -i password", ".kdbx", "id_rsa", ".aws/credentials", "unattend.xml"]
+
+# -----------------------------------------------------------------------------
+# 7. DISCOVERY (TA0007)
+# -----------------------------------------------------------------------------
+- id: local_domain_account_discovery
+  severity: low
+  description: Enumeration of local or domain user accounts and groups
+  technique_id: T1087
+  technique_name: Account Discovery
+  tactic: Discovery
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["net user", "net group", "whoami /all", "get-aduser", "id -a", "cat /etc/passwd"]
+
+- id: system_information_discovery
+  severity: low
+  description: Discovery of operating system build, hardware, and installed hotfixes
+  technique_id: T1082
+  technique_name: System Information Discovery
+  tactic: Discovery
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["systeminfo", "uname -a", "hostname", "wmic qfe", "lsb_release"]
+
+- id: network_service_discovery
+  severity: medium
+  description: Active network connection enumeration or port scanning
+  technique_id: T1046
+  technique_name: Network Service Discovery
+  tactic: Discovery
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["netstat -ano", "ss -tuln", "nmap", "arp -a", "ipconfig /all", "ifconfig"]
+
+- id: file_directory_discovery
+  severity: low
+  description: Enumeration of sensitive directories, file structures, or shares
+  technique_id: T1083
+  technique_name: File and Directory Discovery
+  tactic: Discovery
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["dir /s", "tree /f", "find / -name", "ls -laR"]
+
+# -----------------------------------------------------------------------------
+# 8. LATERAL MOVEMENT (TA0008)
+# -----------------------------------------------------------------------------
+- id: lateral_movement_smb_rdp
+  severity: high
+  description: Lateral movement across network using administrative SMB or RDP
+  technique_id: T1021
+  technique_name: Remote Services
+  tactic: Lateral Movement
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["\\\\", "c$", "admin$", "psexec", "mstsc /v:", "wmic /node:"]
+
+- id: lateral_tool_transfer
+  severity: high
+  description: Transfer of binaries or scripts between internal network hosts
+  technique_id: T1570
+  technique_name: Lateral Tool Transfer
+  tactic: Lateral Movement
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["copy \\\\", "robocopy", "scp ", "bitsadmin /transfer"]
+
+- id: use_alternate_auth_material
+  severity: critical
+  description: Pass-the-Hash, Pass-the-Ticket, or Kerberos ticket manipulation
+  technique_id: T1550
+  technique_name: Use Alternate Authentication Material
+  tactic: Lateral Movement
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["sekurlsa::pth", "kerberos::golden", "kerberos::ptt", "rubeus", "impacket"]
+
+# -----------------------------------------------------------------------------
+# 9. COLLECTION (TA0009)
+# -----------------------------------------------------------------------------
+- id: local_data_collection_staging
+  severity: medium
+  description: Archiving and compression of local user documents for collection
+  technique_id: T1005
+  technique_name: Data from Local System
+  tactic: Collection
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["tar -czvf", "7z a", "rar a", "zip -r", "compress-archive"]
+
+- id: network_share_data_collection
+  severity: high
+  description: Harvesting files and sensitive databases from network shared storage
+  technique_id: T1039
+  technique_name: Data from Network Shared Drive
+  tactic: Collection
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["xcopy \\\\", "robocopy \\\\", "get-childitem \\\\", "mount -t cifs"]
+
+- id: email_mailbox_collection
+  severity: high
+  description: Exporting user emails or scraping local Outlook PST/OST stores
+  technique_id: T1114
+  technique_name: Email Collection
+  tactic: Collection
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["new-mailboxexportrequest", ".pst", ".ost", "outlook.exe /export", "maildir"]
+
+# -----------------------------------------------------------------------------
+# 10. COMMAND AND CONTROL (TA0011)
+# -----------------------------------------------------------------------------
+- id: c2_beaconing_http_protocol
+  severity: high
+  description: Application layer C2 beaconing over HTTP/HTTPS to external IOC
+  technique_id: T1071
+  technique_name: Application Layer Protocol
+  tactic: Command and Control
+  conditions:
+    - type: ioc_ip_match
+
+- id: encrypted_c2_channel_nonstandard
+  severity: high
+  description: Encrypted command and control channel utilizing TLS or DNS tunneling
+  technique_id: T1573
+  technique_name: Encrypted Channel
+  tactic: Command and Control
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["dnscat", "iodine", "chisel client", "ngrok tcp", "stunnel"]
+
+- id: ingress_tool_transfer_download
+  severity: high
+  description: Downloading remote payloads or tools from external repositories
+  technique_id: T1105
+  technique_name: Ingress Tool Transfer
+  tactic: Command and Control
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["curl -o", "wget ", "certutil -f -urlcache", "invoke-webrequest -outfile", "bitsadmin /transfer"]
+
+# -----------------------------------------------------------------------------
+# 11. EXFILTRATION (TA0010)
+# -----------------------------------------------------------------------------
+- id: exfiltration_c2_channel
+  severity: critical
+  description: Exfiltration of staged data payload over active C2 session
+  technique_id: T1041
+  technique_name: Exfiltration Over C2 Channel
+  tactic: Exfiltration
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["upload_stream", "c2_post_data", "beacon_exfil", "meterpreter_upload"]
+
+- id: exfiltration_alternative_protocol
+  severity: high
+  description: Data exfiltration utilizing alternative protocols like FTP or raw sockets
+  technique_id: T1048
+  technique_name: Exfiltration Over Alternative Protocol
+  tactic: Exfiltration
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["ftp -s:", "tftp -i", "nc -w", "ncat --ssl", "curl --upload-file"]
+
+- id: exfiltration_web_service_cloud
+  severity: high
+  description: Data exfiltration to public cloud storage or paste services
+  technique_id: T1567
+  technique_name: Exfiltration Over Web Service
+  tactic: Exfiltration
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["rclone copy", "mega-cmd", "aws s3 cp", "pastebin", "transfer.sh"]
+
+# -----------------------------------------------------------------------------
+# 12. IMPACT (TA0040)
+# -----------------------------------------------------------------------------
+- id: data_encrypted_for_impact_ransomware
+  severity: critical
+  description: Mass encryption of documents and volume shadow destruction (Ransomware)
+  technique_id: T1486
+  technique_name: Data Encrypted for Impact
+  tactic: Impact
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["vssadmin delete shadows", "wbadmin delete catalog", ".locked", ".crypto", "ransom_note"]
+
+- id: service_stop_impact
+  severity: high
+  description: Unauthorized stopping of critical business services or database daemons
+  technique_id: T1489
+  technique_name: Service Stop
+  tactic: Impact
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["net stop", "sc stop", "systemctl stop", "killall -9 mysqld", "taskkill /f /im"]
+
+- id: inhibit_system_recovery
+  severity: critical
+  description: Deletion of recovery catalogs, boot repair configs, or safe mode fallback
+  technique_id: T1490
+  technique_name: Inhibit System Recovery
+  tactic: Impact
+  conditions:
+    - type: event_field_contains_any
+      field: commandline
+      values: ["bootstatuspolicy ignoreallfailures", "recoveryenabled no", "delete shadows /all /quiet"]

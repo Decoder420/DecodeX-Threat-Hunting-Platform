@@ -471,7 +471,7 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
 
         if profile.get("crawl") and requests_used < budget:
             _update(db, scan, stage="CRAWLING", progress=35)
-            crawl_result = crawl(scan_url, allow_private=allow_private)
+            crawl_result = crawl(scan_url, allow_private=allow_private, max_depth=profile.get("max_depth", 3))
             urls_discovered = crawl_result.get("count") or 0
             scan.discovered_urls = urls_discovered
             for u in crawl_result.get("urls") or []:
@@ -544,6 +544,7 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             log("ZAP", f"Starting scoped passive scan & spider on {scan_url}" + (f" (auth={target_auth_type})" if target_auth_type != "none" else ""), severity="INFO")
             z_findings, z_urls, err = run_zap_passive(
                 scan_url,
+                max_depth=profile.get("max_depth", 3),
                 cancel_check=lambda: _cancelled(scan_id),
                 allow_private=allow_private,
                 auth_type=target_auth_type,

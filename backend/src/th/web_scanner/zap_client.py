@@ -260,14 +260,21 @@ class ZapClient:
         url: str,
         context_name: Optional[str] = None,
         max_children: int = 50,
+        max_depth: int = 5,
         timeout: int = 60,
         cancel_check: Optional[Callable[[], bool]] = None,
         progress_callback: Optional[Callable[[int], None]] = None,
         allow_private: bool = WEBSCAN_ALLOW_PRIVATE_TARGETS,
     ) -> Tuple[List[str], Optional[str]]:
-        """Run ZAP traditional spider with scope enforcement, progress streaming, and cancellation."""
+        """Run ZAP traditional spider with scope enforcement, max depth, progress streaming, and cancellation."""
         # SSRF validation BEFORE sending outbound request
         validate_scan_url(url, allow_private=allow_private)
+
+        # Set spider max depth
+        try:
+            self._req("spider/action/setOptionMaxDepth/", {"Integer": str(max(1, max_depth))}, method="POST")
+        except Exception:
+            pass
 
         params: Dict[str, Any] = {
             "url": url,

@@ -132,7 +132,8 @@ class ZapIntegrationTests(unittest.TestCase):
             ]
         }
 
-        mock_req.side_effect = [r_start, r_status, r_results]
+        r_opt = MagicMock(ok=True)
+        mock_req.side_effect = [r_opt, r_start, r_status, r_results]
         urls, err = client.run_spider("https://example.com")
 
         self.assertIsNone(err)
@@ -146,6 +147,7 @@ class ZapIntegrationTests(unittest.TestCase):
     def test_zap_scan_progress_is_reported(self, mock_req):
         client = ZapClient("http://127.0.0.1:8080", "test-key")
 
+        r_opt = MagicMock(ok=True)
         r_start = MagicMock(ok=True)
         r_start.json.return_value = {"scan": "1"}
 
@@ -158,7 +160,7 @@ class ZapIntegrationTests(unittest.TestCase):
         r_res = MagicMock(ok=True)
         r_res.json.return_value = {"results": ["https://example.com/"]}
 
-        mock_req.side_effect = [r_start, r_st1, r_st2, r_res]
+        mock_req.side_effect = [r_opt, r_start, r_st1, r_st2, r_res]
 
         progress_reports = []
         urls, err = client.run_spider(
@@ -239,10 +241,11 @@ class ZapIntegrationTests(unittest.TestCase):
     def test_scan_cancellation_works(self, mock_req):
         client = ZapClient("http://127.0.0.1:8080", "test-key")
 
+        r_opt = MagicMock(ok=True)
         r_start = MagicMock(ok=True)
         r_start.json.return_value = {"scan": "99"}
         r_stop = MagicMock(ok=True)
-        mock_req.side_effect = [r_start, r_stop]
+        mock_req.side_effect = [r_opt, r_start, r_stop]
 
         # Cancel immediately
         urls, err = client.run_spider(
@@ -259,6 +262,7 @@ class ZapIntegrationTests(unittest.TestCase):
     def test_scan_timeout_works(self, mock_req):
         client = ZapClient("http://127.0.0.1:8080", "test-key")
 
+        r_opt = MagicMock(ok=True)
         r_start = MagicMock(ok=True)
         r_start.json.return_value = {"scan": "100"}
         r_status = MagicMock(ok=True)
@@ -266,7 +270,7 @@ class ZapIntegrationTests(unittest.TestCase):
         r_res = MagicMock(ok=True)
         r_res.json.return_value = {"results": []}
 
-        mock_req.side_effect = [r_start, r_status, r_res]
+        mock_req.side_effect = [r_opt, r_start, r_status, r_res]
 
         # Timeout after 0.01 seconds
         urls, err = client.run_spider(
@@ -403,6 +407,89 @@ class ZapIntegrationTests(unittest.TestCase):
         self.assertEqual(diff["persistent_findings_count"], 1)
         self.assertEqual(diff["new_findings"][0]["title"], "SQL Injection")
         self.assertEqual(diff["resolved_findings"][0]["title"], "Open Redirect")
+
+    # -------------------------------------------------------------------------
+    # ZapDaemonManager Telemetry & Status
+    # -------------------------------------------------------------------------
+    @patch.object(ZapClient, "_req")
+    def test_zap_daemon_manager_status(self, mock_req):
+        from th.web_scanner.zap_daemon import ZapDaemonManager
+
+        v_resp = MagicMock()
+        v_resp.ok = True
+        v_resp.json.return_value = {"version": "2.14.0"}
+
+        a_resp = MagicMock()
+        a_resp.ok = True
+        a_resp.json.return_value = {"installedAddons": [{"id": "openapi", "version": "1.0", "name": "OpenAPI"}]}
+
+        s_resp = MagicMock()
+        s_resp.ok = True
+        s_resp.json.return_value = {"scans": [{"id": "1", "status": "RUNNING"}]}
+
+        mock_req.side_effect = [v_resp, a_resp, s_resp, s_resp]
+        mgr = ZapDaemonManager("http://127.0.0.1:8080", "test-key")
+        status = mgr.get_status()
+
+        self.assertTrue(status["available"])
+        self.assertTrue(status["healthy"])
+        self.assertEqual(status["version"], "2.14.0")
+        self.assertTrue(status["api_reachable"])
+        self.assertEqual(status["active_scans"], 2)
+
+    # -------------------------------------------------------------------------
+    # OpenAPI Specification Parser (JSON & YAML)
+    # -------------------------------------------------------------------------
+    def test_openapi_spec_parser(self):
+        from th.web_scanner.api_discovery import parse_openapi_spec
+
+        json_spec = """{
+            "openapi": "3.0.0",
+            "info": {"title": "Test User API", "version": "1.0.0"},
+            "paths": {
+                "/api/users": {
+                    "get": {
+                        "summary": "List users",
+                        "tags": ["Users"],
+                        "parameters": [{"name": "limit", "in": "query", "type": "integer"}]
+                    },
+                    "post": {
+                        "summary": "Create user",
+                        "tags": ["Users"]
+                    }
+                },
+                "/api/users/{id}": {
+                    "delete": {
+                        "summary": "Delete user",
+                        "tags": ["Users"]
+                    }
+                }
+            }
+        }"""
+        endpoints, meta, err = parse_openapi_spec(json_spec, base_url="https://api.example.com")
+        self.assertIsNone(err)
+        self.assertEqual(meta["title"], "Test User API")
+        self.assertEqual(len(endpoints), 3)
+        self.assertEqual(endpoints[0]["method"], "GET")
+        self.assertEqual(endpoints[0]["path"], "/api/users")
+        self.assertEqual(endpoints[0]["parameters"][0]["name"], "limit")
+
+        yaml_spec = """
+openapi: 3.0.1
+info:
+  title: YAML API
+  version: 2.0.0
+paths:
+  /auth/login:
+    post:
+      summary: Login endpoint
+"""
+        ep_yaml, meta_yaml, err_yaml = parse_openapi_spec(yaml_spec, base_url="https://api.example.com")
+        self.assertIsNone(err_yaml)
+        self.assertEqual(meta_yaml["title"], "YAML API")
+        self.assertEqual(len(ep_yaml), 1)
+        self.assertEqual(ep_yaml[0]["path"], "/auth/login")
+        self.assertEqual(ep_yaml[0]["method"], "POST")
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ services:
       - "5001:5000"
     volumes:
       - ./backend/src:/app/src
+      - ./backend/hunting_rules.yml:/app/hunting_rules.yml
       - ./backend/threat_hunting.db:/app/threat_hunting.db
       - ./backend/data:/app/data
     depends_on:
