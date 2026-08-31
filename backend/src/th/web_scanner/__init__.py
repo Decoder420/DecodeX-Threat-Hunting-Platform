@@ -10,6 +10,7 @@ from .orchestrator import (
 )
 from .legacy import run_safe_scan
 from .zap_client import ZapClient, zap_client
+from .zap_daemon import ZapDaemonManager, zap_daemon
 
 __all__ = [
     "run_safe_scan",
@@ -21,4 +22,6 @@ __all__ = [
     "recover_stale_scans",
     "ZapClient",
     "zap_client",
+    "ZapDaemonManager",
+    "zap_daemon",
 ]

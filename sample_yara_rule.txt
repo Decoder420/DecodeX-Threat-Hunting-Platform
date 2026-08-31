@@ -1,0 +1,40 @@
+rule Detect_PHP_WebShell {
+    meta:
+        description = "Detects common PHP webshell execution methods"
+        author = "DecodeX Threat Hunting Platform"
+        date = "2026-08-31"
+        severity = "High"
+        category = "Web Application Security"
+
+    strings:
+        $eval_b64 = "eval(base64_decode(" ascii
+        $system_get = "system($_GET[" ascii
+        $system_post = "system($_POST[" ascii
+        $exec_get = "exec($_GET[" ascii
+        $exec_post = "exec($_POST[" ascii
+        $shell_exec = "shell_exec(" ascii
+        $passthru = "passthru(" ascii
+        $php_sys = "<?php system(" ascii
+        
+    condition:
+        any of them
+}
+
+rule Detect_Python_Reverse_Shell {
+    meta:
+        description = "Detects common Python one-liner reverse shells"
+        author = "DecodeX Threat Hunting Platform"
+        date = "2026-08-31"
+        severity = "Critical"
+        category = "Endpoint Security"
+
+    strings:
+        $s1 = "import socket,subprocess,os" ascii
+        $s2 = "s.connect((" ascii
+        $s3 = "os.dup2(s.fileno()," ascii
+        $s4 = "subprocess.call([\"/bin/sh\",\"-i\"])" ascii
+        $s5 = "pty.spawn(\"/bin/bash\")" ascii
+
+    condition:
+        ($s1 and $s2 and $s3) or $s4 or $s5
+}

@@ -156,4 +156,10 @@ export const deleteWebhook = (id) => api.delete(`/webhooks/${id}`);
 export const testWebhook = (id) => api.post(`/webhooks/${id}/test`);
 export const setTargetSchedule = (targetId, payload) => api.post(`/web-targets/${targetId}/schedule`, payload);
 
+// --- OWASP ZAP & OpenAPI Scanner APIs ---
+export const getZapStatus = () => api.get("/scanner/zap/status");
+export const importTargetOpenApi = (targetId, payload) => api.post(`/web-targets/${targetId}/import-openapi`, payload);
+export const startZapDaemon = () => api.post("/scanner/zap/daemon/start");
+export const stopZapDaemon = () => api.post("/scanner/zap/daemon/stop");
+
 export default api;
