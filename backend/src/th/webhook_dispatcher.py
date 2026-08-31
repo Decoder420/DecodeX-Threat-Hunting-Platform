@@ -78,8 +78,9 @@ def is_ssrf_safe_url(url: str, allow_private: bool = False) -> tuple[bool, str]:
             pass
 
         return True, ""
-    except Exception as exc:
-        return False, f"Malformed URL: {exc}"
+    except Exception:
+        logger.exception("Failed to validate webhook URL for SSRF safety.")
+        return False, "Malformed webhook URL."
 
 
 # --- Channel Formatters ---
