@@ -2029,6 +2029,11 @@ def register_enterprise_routes(app, *, login_required, require_permission, broad
         channel = data.get("channel", "slack").lower()
         if not webhook_url:
             return jsonify({"error": "webhook_url is required"}), 400
+
+        from .webhook_dispatcher import is_ssrf_safe_url
+        is_safe, reason = is_ssrf_safe_url(webhook_url)
+        if not is_safe:
+            return jsonify({"status": "error", "message": f"Webhook URL rejected: {reason}"}), 400
         
         try:
             import urllib.request
