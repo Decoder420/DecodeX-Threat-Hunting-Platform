@@ -36,11 +36,11 @@ export default function Navbar({
   return (
     <nav ref={navRef} className="app-nav">
       <div className="app-nav__brand">
-        <div className="app-nav__mark" aria-hidden style={{ overflow: "hidden", padding: 0 }}>
+        <div className="app-nav__mark" aria-hidden style={{ overflow: "hidden", padding: 2 }}>
           <img
             src={`${process.env.PUBLIC_URL || ""}/logo192.png`}
             alt="DecodeX"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         </div>
         <div>

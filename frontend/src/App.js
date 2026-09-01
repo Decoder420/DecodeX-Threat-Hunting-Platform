@@ -86,16 +86,14 @@ function LoginScreen({ onSuccess }) {
       <div className="login-shell__overlay" aria-hidden />
       <div className="login-shell__grid" aria-hidden />
       <form ref={cardRef} className="surface login-card" onSubmit={handleLogin}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
           <img
-            src={`${process.env.PUBLIC_URL || ""}/decodex_emblem.png`}
+            src={`${process.env.PUBLIC_URL || ""}/decodex_logo.png`}
             alt="DecodeX Logo"
             style={{
-              width: 130,
+              width: 175,
               height: "auto",
-              borderRadius: 12,
-              border: "1px solid rgba(86, 198, 255, 0.25)",
-              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+              filter: "drop-shadow(0 8px 24px rgba(5, 249, 250, 0.22))",
             }}
           />
         </div>
