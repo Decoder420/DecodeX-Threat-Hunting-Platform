@@ -19,7 +19,7 @@
         "react-simple-code-editor": "^0.14.1",
         "recharts": "^3.8.1",
         "socket.io-client": "^4.8.3",
-        "web-vitals": "^2.1.4"
+        "web-vitals": "^6.2.1"
     },
     "scripts": {
         "dev": "react-scripts start",
