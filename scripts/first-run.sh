@@ -74,6 +74,7 @@ if [ ! -f "${ENV_FILE}" ]; then
 
     # Sync to backend/.env
     cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
+    rm -f "${ENV_FILE}.bak" "${BACKEND_ENV_FILE}.bak" "${ROOT_DIR}/.env.bak" "${ROOT_DIR}/backend/.env.bak" 2>/dev/null || true
 
     echo -e "${GREEN}[OK] Generated fresh evaluation secrets into .env and backend/.env:${NC}"
     echo "     - ENCRYPTION_KEY: (Generated 32-byte Fernet vault key)"
@@ -86,6 +87,7 @@ else
     echo -e "${GREEN}[OK] Existing .env file detected.${NC}"
     if [ ! -f "${BACKEND_ENV_FILE}" ]; then
         cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
+        rm -f "${ENV_FILE}.bak" "${BACKEND_ENV_FILE}.bak" "${ROOT_DIR}/.env.bak" "${ROOT_DIR}/backend/.env.bak" 2>/dev/null || true
     fi
 fi
 
@@ -148,6 +150,7 @@ else
 fi
 
 cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
+rm -f "${ENV_FILE}.bak" "${BACKEND_ENV_FILE}.bak" "${ROOT_DIR}/.env.bak" "${ROOT_DIR}/backend/.env.bak" 2>/dev/null || true
 
 # 3. Initialize Host Files & Data Directories
 if [ -d "${ROOT_DIR}/backend/threat_hunting.db" ]; then
@@ -163,6 +166,7 @@ echo ""
 echo -e "${BLUE}[INFO] Launching DecodeX containers via Docker Compose...${NC}"
 # Clean up any stale or conflicting existing containers first
 docker compose down --remove-orphans &>/dev/null || true
+docker rm -f zap_scanner threat_hunt_backend threat_hunt_frontend threat_hunt_proxy &>/dev/null || true
 docker compose up -d
 
 # 4. Wait briefly for backend health probe

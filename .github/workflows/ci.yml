@@ -26,10 +26,12 @@ jobs:
       - name: Check for Hardcoded Unexpanded Secrets in docker-compose.yaml
         run: |
           echo "Scanning docker-compose.yaml for unexpanded secrets..."
-          if grep -E '^\s*-\s*TH_ADMIN_PASSWORD=[^$]' docker-compose.yaml ; then
-            echo "::error::Hardcoded unexpanded TH_ADMIN_PASSWORD found in docker-compose.yaml! Must use \${TH_ADMIN_PASSWORD:-...}"
-            exit 1
-          fi
+          for var in TH_ADMIN_PASSWORD TH_ANALYST_PASSWORD TH_VIEWER_PASSWORD; do
+            if grep -E "^\s*-\s*${var}=[^$]" docker-compose.yaml ; then
+              echo "::error::Hardcoded unexpanded ${var} found in docker-compose.yaml! Must use \${${var}:?...}"
+              exit 1
+            fi
+          done
           echo "[OK] docker-compose.yaml adheres to variable expansion."
 
       - name: Check for Leaked Historical Secret Strings

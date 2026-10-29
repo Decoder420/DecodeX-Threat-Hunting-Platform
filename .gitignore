@@ -22,7 +22,9 @@ htmlcov/
 # Env / secrets
 .env
 .env.local
+.env.*
 *.env
+*.bak
 !.env.example
 !**/.env.example
 
@@ -42,4 +44,3 @@ backend/tools/zap/zap.pid
 backend/tools/zap/ZAP_*/
 # Prevent accidental nested clone tracking
 DecodeX-Threat-Hunting-Platform/
-Artworks\ */
