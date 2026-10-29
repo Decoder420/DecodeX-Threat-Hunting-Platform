@@ -40,3 +40,5 @@ backend/tools/zap_api_key.txt
 backend/tools/zap/zap-daemon.log*
 backend/tools/zap/zap.pid
 backend/tools/zap/ZAP_*/
+# Prevent accidental nested clone tracking
+DecodeX-Threat-Hunting-Platform/

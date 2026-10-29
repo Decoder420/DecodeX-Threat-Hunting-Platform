@@ -6,10 +6,10 @@
 # Requirements: gh (GitHub CLI) logged in, jq
 #
 # Usage:
-#  ./merge-nonbreaking.sh                # dry-run (shows what WOULD be merged)
-#  ./merge-nonbreaking.sh --apply       # actually merge
-#  ./merge-nonbreaking.sh --repo owner/repo  # target a different repository
-#  ./merge-nonbreaking.sh --help
+#  ./scripts/merge-nonbreaking.sh                # dry-run (shows what WOULD be merged)
+#  ./scripts/merge-nonbreaking.sh --apply       # actually merge
+#  ./scripts/merge-nonbreaking.sh --repo owner/repo  # target a different repository
+#  ./scripts/merge-nonbreaking.sh --help
 
 set -euo pipefail
 

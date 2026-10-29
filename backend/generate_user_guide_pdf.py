@@ -22,7 +22,7 @@ from reportlab.platypus import (
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DB_PATH = PROJECT_ROOT / "threat_hunting.db" if (PROJECT_ROOT / "threat_hunting.db").exists() else PROJECT_ROOT / "threat.db"
-OUTPUT_PATH = PROJECT_ROOT.parent / "DecodeX_User_Guide.pdf"
+OUTPUT_PATH = PROJECT_ROOT.parent / "docs" / "DecodeX_User_Guide.pdf"
 
 
 def load_metrics() -> dict:
@@ -547,7 +547,7 @@ def build_story(metrics):
 
 def main():
     metrics = load_metrics()
-    targets = [OUTPUT_PATH, PROJECT_ROOT.parent / "Threat_Hunting_Platform_User_Guide.pdf"]
+    targets = [OUTPUT_PATH]
     for out_path in targets:
         doc = SimpleDocTemplate(
             str(out_path),

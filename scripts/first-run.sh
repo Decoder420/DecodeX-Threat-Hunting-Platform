@@ -89,6 +89,29 @@ else
     fi
 fi
 
+# Ensure TH_ADMIN_PASSWORD is set and non-empty in .env
+ADMIN_PASSWORD_GENERATED=0
+EXISTING_ADMIN_PASS="$(grep -E '^TH_ADMIN_PASSWORD=.+' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- || true)"
+
+if [ -z "${EXISTING_ADMIN_PASS}" ]; then
+    if command -v openssl &>/dev/null; then
+        GEN_ADMIN_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+    else
+        GEN_ADMIN_PASS="$(python3 -c "import secrets, string; alphabet = string.ascii_letters + string.digits; print(''.join(secrets.choice(alphabet) for _ in range(24)))")"
+    fi
+    ADMIN_PASSWORD_GENERATED=1
+    if grep -q '^TH_ADMIN_PASSWORD=' "${ENV_FILE}"; then
+        sed -i.bak -e "s|^TH_ADMIN_PASSWORD=.*|TH_ADMIN_PASSWORD=${GEN_ADMIN_PASS}|" "${ENV_FILE}"
+        rm -f "${ENV_FILE}.bak"
+    else
+        echo "TH_ADMIN_PASSWORD=${GEN_ADMIN_PASS}" >> "${ENV_FILE}"
+    fi
+    cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
+    ADMIN_PASS_DISPLAY="${GEN_ADMIN_PASS}"
+else
+    ADMIN_PASS_DISPLAY="${EXISTING_ADMIN_PASS}"
+fi
+
 # 3. Initialize Host Files & Data Directories
 if [ -d "${ROOT_DIR}/backend/threat_hunting.db" ]; then
     rm -rf "${ROOT_DIR}/backend/threat_hunting.db"
@@ -120,15 +143,24 @@ echo -e "${BOLD}${GREEN}========================================================
 echo -e "${BOLD}${GREEN}    DecodeX is ready!${NC}"
 echo -e "${BOLD}${GREEN}================================================================${NC}"
 echo ""
-echo -e "  ${BOLD}Platform URL:${NC}    http://localhost
-  ${BOLD}Default Admin:${NC}   admin / ChangeMe_Admin_Password123!
-  ${BOLD}Default Analyst:${NC} analyst / ChangeMe_Analyst_Password123!
-  ${BOLD}Default Viewer:${NC}  viewer / ChangeMe_Viewer_Password123!
+echo -e "  ${BOLD}Platform URL:${NC}    http://localhost"
+if [ "${ADMIN_PASSWORD_GENERATED}" -eq 1 ]; then
+    echo -e "  ${BOLD}Default Admin:${NC}   admin / ${GREEN}${ADMIN_PASS_DISPLAY}${NC}"
+else
+    echo -e "  ${BOLD}Default Admin:${NC}   admin / [Configured in .env]"
+fi
+echo -e "  ${BOLD}Default Analyst:${NC} analyst / ChangeMe_Analyst_Password123!
+  ${BOLD}Default Viewer:${NC}  viewer / ChangeMe_Viewer_Password123!"
 
-  ${BOLD}${RED}⚠️  SECURITY WARNING: 'ChangeMe_Admin_Password123!' is a STATIC DEFAULT.${NC}
-  ${BOLD}${RED}    CHANGE THIS DEFAULT PASSWORD IN .env BEFORE ANY REAL USE OR NETWORK EXPOSURE!${NC}
+if [ "${ADMIN_PASSWORD_GENERATED}" -eq 1 ]; then
+    echo ""
+    echo -e "  ${BOLD}${YELLOW}⚠️  INITIAL ADMIN CREDENTIALS GENERATED:${NC}"
+    echo -e "  ${BOLD}   Save this password now; it will NOT be displayed again.${NC}"
+    echo -e "  ${BOLD}   Change it immediately after first login in Settings or user management.${NC}"
+fi
 
-  ${BOLD}Useful Commands:${NC}
+echo ""
+echo -e "  ${BOLD}Useful Commands:${NC}
     - View logs:        docker compose logs -f
     - Stop platform:    docker compose down
     - Run health check: ./health-check.sh"

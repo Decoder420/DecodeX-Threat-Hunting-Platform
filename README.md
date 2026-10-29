@@ -46,7 +46,7 @@ cd DecodeX-Threat-Hunting-Platform
 ### Accessing the Platform:
 - **Web UI**: Open [http://localhost](http://localhost) in your browser.
 - **Default Roles & Initial Passwords**:
-  - **Administrator (`admin`)**: `ChangeMe_Admin_Password123!` (Full system, user management, and target authorization).
+  - **Administrator (`admin`)**: Auto-generated on first run (see terminal output from `scripts/first-run.sh` or `TH_ADMIN_PASSWORD` in `.env`). Full system, user management, and target authorization.
   - **Security Analyst (`analyst`)**: `ChangeMe_Analyst_Password123!` (Alert triage, case promotion, scanning, and IOC sync).
   - **Viewer (`viewer`)**: `ChangeMe_Viewer_Password123!` (Read-only dashboards and reports).
 
