@@ -42,3 +42,4 @@ backend/tools/zap/zap.pid
 backend/tools/zap/ZAP_*/
 # Prevent accidental nested clone tracking
 DecodeX-Threat-Hunting-Platform/
+Artworks\ */

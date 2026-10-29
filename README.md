@@ -46,8 +46,8 @@ cd DecodeX-Threat-Hunting-Platform
 - **Web UI**: Open [http://localhost](http://localhost) in your browser.
 - **Default Roles & Initial Passwords**:
   - **Administrator (`admin`)**: Auto-generated on first run (see terminal output from `scripts/first-run.sh` or `TH_ADMIN_PASSWORD` in `.env`). Full system, user management, and target authorization.
-  - **Security Analyst (`analyst`)**: `ChangeMe_Analyst_Password123!` (Alert triage, case promotion, scanning, and IOC sync).
-  - **Viewer (`viewer`)**: `ChangeMe_Viewer_Password123!` (Read-only dashboards and reports).
+  - **Security Analyst (`analyst`)**: Auto-generated on first run (see terminal output from `scripts/first-run.sh` or `TH_ANALYST_PASSWORD` in `.env`). Alert triage, case promotion, scanning, and IOC sync.
+  - **Viewer (`viewer`)**: Auto-generated on first run (see terminal output from `scripts/first-run.sh` or `TH_VIEWER_PASSWORD` in `.env`). Read-only dashboards and reports.
 
 > [!NOTE]
 > The auto-generated keys and default passwords initialized by `./scripts/first-run.sh` are intended strictly for **local evaluation**. In production environments, configure dedicated secrets manually in `.env`.

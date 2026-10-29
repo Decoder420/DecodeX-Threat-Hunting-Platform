@@ -89,16 +89,20 @@ else
     fi
 fi
 
-# Ensure TH_ADMIN_PASSWORD is set and non-empty in .env
+# Helper function to generate high-entropy password
+generate_strong_password() {
+    if command -v openssl &>/dev/null; then
+        openssl rand -base64 24 | tr -d '/+=' | cut -c1-24
+    else
+        python3 -c "import secrets, string; alphabet = string.ascii_letters + string.digits; print(''.join(secrets.choice(alphabet) for _ in range(24)))"
+    fi
+}
+
+# Ensure role passwords are set and non-empty in .env
 ADMIN_PASSWORD_GENERATED=0
 EXISTING_ADMIN_PASS="$(grep -E '^TH_ADMIN_PASSWORD=.+' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- || true)"
-
 if [ -z "${EXISTING_ADMIN_PASS}" ]; then
-    if command -v openssl &>/dev/null; then
-        GEN_ADMIN_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
-    else
-        GEN_ADMIN_PASS="$(python3 -c "import secrets, string; alphabet = string.ascii_letters + string.digits; print(''.join(secrets.choice(alphabet) for _ in range(24)))")"
-    fi
+    GEN_ADMIN_PASS="$(generate_strong_password)"
     ADMIN_PASSWORD_GENERATED=1
     if grep -q '^TH_ADMIN_PASSWORD=' "${ENV_FILE}"; then
         sed -i.bak -e "s|^TH_ADMIN_PASSWORD=.*|TH_ADMIN_PASSWORD=${GEN_ADMIN_PASS}|" "${ENV_FILE}"
@@ -106,11 +110,44 @@ if [ -z "${EXISTING_ADMIN_PASS}" ]; then
     else
         echo "TH_ADMIN_PASSWORD=${GEN_ADMIN_PASS}" >> "${ENV_FILE}"
     fi
-    cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
     ADMIN_PASS_DISPLAY="${GEN_ADMIN_PASS}"
 else
     ADMIN_PASS_DISPLAY="${EXISTING_ADMIN_PASS}"
 fi
+
+ANALYST_PASSWORD_GENERATED=0
+EXISTING_ANALYST_PASS="$(grep -E '^TH_ANALYST_PASSWORD=.+' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- || true)"
+if [ -z "${EXISTING_ANALYST_PASS}" ]; then
+    GEN_ANALYST_PASS="$(generate_strong_password)"
+    ANALYST_PASSWORD_GENERATED=1
+    if grep -q '^TH_ANALYST_PASSWORD=' "${ENV_FILE}"; then
+        sed -i.bak -e "s|^TH_ANALYST_PASSWORD=.*|TH_ANALYST_PASSWORD=${GEN_ANALYST_PASS}|" "${ENV_FILE}"
+        rm -f "${ENV_FILE}.bak"
+    else
+        echo "TH_ANALYST_PASSWORD=${GEN_ANALYST_PASS}" >> "${ENV_FILE}"
+    fi
+    ANALYST_PASS_DISPLAY="${GEN_ANALYST_PASS}"
+else
+    ANALYST_PASS_DISPLAY="${EXISTING_ANALYST_PASS}"
+fi
+
+VIEWER_PASSWORD_GENERATED=0
+EXISTING_VIEWER_PASS="$(grep -E '^TH_VIEWER_PASSWORD=.+' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- || true)"
+if [ -z "${EXISTING_VIEWER_PASS}" ]; then
+    GEN_VIEWER_PASS="$(generate_strong_password)"
+    VIEWER_PASSWORD_GENERATED=1
+    if grep -q '^TH_VIEWER_PASSWORD=' "${ENV_FILE}"; then
+        sed -i.bak -e "s|^TH_VIEWER_PASSWORD=.*|TH_VIEWER_PASSWORD=${GEN_VIEWER_PASS}|" "${ENV_FILE}"
+        rm -f "${ENV_FILE}.bak"
+    else
+        echo "TH_VIEWER_PASSWORD=${GEN_VIEWER_PASS}" >> "${ENV_FILE}"
+    fi
+    VIEWER_PASS_DISPLAY="${GEN_VIEWER_PASS}"
+else
+    VIEWER_PASS_DISPLAY="${EXISTING_VIEWER_PASS}"
+fi
+
+cp "${ENV_FILE}" "${BACKEND_ENV_FILE}"
 
 # 3. Initialize Host Files & Data Directories
 if [ -d "${ROOT_DIR}/backend/threat_hunting.db" ]; then
@@ -149,14 +186,22 @@ if [ "${ADMIN_PASSWORD_GENERATED}" -eq 1 ]; then
 else
     echo -e "  ${BOLD}Default Admin:${NC}   admin / [Configured in .env]"
 fi
-echo -e "  ${BOLD}Default Analyst:${NC} analyst / ChangeMe_Analyst_Password123!
-  ${BOLD}Default Viewer:${NC}  viewer / ChangeMe_Viewer_Password123!"
+if [ "${ANALYST_PASSWORD_GENERATED}" -eq 1 ]; then
+    echo -e "  ${BOLD}Default Analyst:${NC} analyst / ${GREEN}${ANALYST_PASS_DISPLAY}${NC}"
+else
+    echo -e "  ${BOLD}Default Analyst:${NC} analyst / [Configured in .env]"
+fi
+if [ "${VIEWER_PASSWORD_GENERATED}" -eq 1 ]; then
+    echo -e "  ${BOLD}Default Viewer:${NC}  viewer / ${GREEN}${VIEWER_PASS_DISPLAY}${NC}"
+else
+    echo -e "  ${BOLD}Default Viewer:${NC}  viewer / [Configured in .env]"
+fi
 
-if [ "${ADMIN_PASSWORD_GENERATED}" -eq 1 ]; then
+if [ "${ADMIN_PASSWORD_GENERATED}" -eq 1 ] || [ "${ANALYST_PASSWORD_GENERATED}" -eq 1 ] || [ "${VIEWER_PASSWORD_GENERATED}" -eq 1 ]; then
     echo ""
-    echo -e "  ${BOLD}${YELLOW}⚠️  INITIAL ADMIN CREDENTIALS GENERATED:${NC}"
-    echo -e "  ${BOLD}   Save this password now; it will NOT be displayed again.${NC}"
-    echo -e "  ${BOLD}   Change it immediately after first login in Settings or user management.${NC}"
+    echo -e "  ${BOLD}${YELLOW}⚠️  INITIAL CREDENTIALS GENERATED:${NC}"
+    echo -e "  ${BOLD}   Save these generated passwords now; they will NOT be displayed again.${NC}"
+    echo -e "  ${BOLD}   Change them immediately after first login in Settings or user management.${NC}"
 fi
 
 echo ""

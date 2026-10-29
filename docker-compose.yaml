@@ -22,6 +22,8 @@ services:
     environment:
       # Secrets sourced from environment / .env (never hardcoded in committed compose files)
       - TH_ADMIN_PASSWORD=${TH_ADMIN_PASSWORD:?TH_ADMIN_PASSWORD must be set in .env (run scripts/first-run.sh)}
+      - TH_ANALYST_PASSWORD=${TH_ANALYST_PASSWORD:?TH_ANALYST_PASSWORD must be set in .env (run scripts/first-run.sh)}
+      - TH_VIEWER_PASSWORD=${TH_VIEWER_PASSWORD:?TH_VIEWER_PASSWORD must be set in .env (run scripts/first-run.sh)}
       # SECURITY WARNING: Setting to true permits scanning RFC1918 / localhost / internal IP ranges (SSRF risk).
       # Shipped as false by default. Explicit opt-in via WEBSCAN_ALLOW_PRIVATE_TARGETS=true in .env for isolated lab use only.
       - WEBSCAN_ALLOW_PRIVATE_TARGETS=${WEBSCAN_ALLOW_PRIVATE_TARGETS:-false}

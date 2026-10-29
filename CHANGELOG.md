@@ -4,6 +4,29 @@ All notable changes, architectural enhancements, and security hardening mileston
 
 ---
 
+## [Unreleased]
+
+### Breaking Changes
+- **Enforced Non-Static Role Credentials**: `TH_ADMIN_PASSWORD`, `TH_ANALYST_PASSWORD`, and `TH_VIEWER_PASSWORD` no longer have static default values in `docker-compose.yaml` or `.env.example`. Directly invoking `docker compose up` without these variables set will now fail loud with an explicit error message. For local setup, run `./scripts/first-run.sh` to generate high-entropy 24-character credentials automatically, or define non-empty values manually in `.env`.
+- **Existing Deployments Unaffected**: The backend user seeding logic (`backend/src/th/db.py:865-875`) checks if accounts already exist in the database; existing deployments with an initialized database preserve their existing password hashes and will not overwrite credentials unless explicit, different passwords are provided in `.env`.
+
+### Repository Hygiene & Structure
+- **Embedded Submodule Gitlink Purged**: Removed broken gitlink pointer (`DecodeX-Threat-Hunting-Platform/`, mode 160000) from root tree and ignored nested clone directories via `.gitignore`.
+- **Documentation & Script Reorganization**:
+  - Moved `DecodeX_Platform_Report.pdf` and `DecodeX_User_Guide.pdf` to `docs/` and purged obsolete `Threat_Hunting_Platform_*.pdf` legacy assets.
+  - Moved `merge-nonbreaking.sh` to `scripts/merge-nonbreaking.sh` with updated execution paths.
+  - Moved `sample_yara_rule.txt` to `docs/examples/sample_yara_rule.txt`.
+  - Dropped hardcoded, out-of-date test counts badge from `README.md`.
+  - Updated PDF generation utilities (`generate_project_report.py`, `generate_user_guide_pdf.py`) to output directly to `docs/`.
+
+### Reporting Enhancements
+- **Enterprise Report Templates**:
+  - Added timezone-aware datetime rendering (`tz_name`) to incident reports (`incident_report.py`) and dynamic web scan executive summaries (`web_scanner_report.py`).
+  - Added configurable company name header and footer ribbons.
+  - Added standardized 3-column verification and sign-off blocks (Lead Security Assessor, SOC Lead / Reviewer, CISO / Authorization) on incident and web security reports.
+
+---
+
 ## [2.1.0] - 2026-08-30 (Phase Next: Post-Verification Upgrade)
 
 ### Security Hardening & Secret Protection
