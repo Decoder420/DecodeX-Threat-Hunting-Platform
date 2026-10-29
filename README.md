@@ -12,7 +12,6 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI Build & Security Guardrails](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Decoder420/DecodeX-Threat-Hunting-Platform/actions/workflows/ci.yml)
-[![Tests Passing](https://img.shields.io/badge/Tests-81%2F81%20Backend%20%7C%2017%2F17%20Frontend-brightgreen.svg)](backend/tests/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose%20Ready-2496ED?logo=docker&logoColor=white)](docker-compose.yaml)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](backend/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](frontend/)
