@@ -34,6 +34,16 @@ jobs:
           done
           echo "[OK] docker-compose.yaml adheres to variable expansion."
 
+      - name: Check for Insecure or Wildcard Port Bindings in docker-compose.yaml
+        run: |
+          echo "Scanning docker-compose.yaml for unbound or wildcard 0.0.0.0 port mappings..."
+          # Fail if any active port mapping lacks an explicit bind address or hardcodes 0.0.0.0
+          if grep -nE '^\s*-\s*("?0\.0\.0\.0:|"?[0-9]+:[0-9]+)' docker-compose.yaml ; then
+            echo "::error::Insecure or unbound port mapping found in docker-compose.yaml! Must bind to localhost (e.g. \${BIND_ADDRESS:-127.0.0.1}:...)"
+            exit 1
+          fi
+          echo "[OK] docker-compose.yaml port mappings adhere to localhost bind restrictions."
+
       - name: Check for Leaked Historical Secret Strings
         run: |
           echo "Scanning for leaked legacy secret strings..."

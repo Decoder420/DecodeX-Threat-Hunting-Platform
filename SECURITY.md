@@ -66,10 +66,23 @@ Backend logging utilizes a structured JSON formatter (`StructuredJsonFormatter`)
 | `AUTH_RATE_LIMIT_MAX` | Optional | Maximum failed/total login attempts per window (default: `30`). |
 | `AUTH_RATE_LIMIT_WINDOW` | Optional | Rolling window in seconds for login rate limiter (default: `60`). |
 | `WEBSCAN_ALLOW_PRIVATE_TARGETS` | Optional | Set to `true` **only** in local isolated labs to permit scanning private containers. Default is `false`. |
+| `BIND_ADDRESS` | Optional | Host interface for published reverse proxy port 80 (default: `127.0.0.1` / localhost only). |
 | `SQLITE_JOURNAL_MODE` | Optional | SQLite journal mode (`DELETE` on macOS/VirtioFS to prevent file locking issues, `WAL` on Linux production). |
 
 ---
 
-## 6. Historical Secret Scrubbing
+## 6. Network Exposure & Host Port Binding
+
+By default, DecodeX enforces least-privilege host network binding:
+- **Localhost Loopback Only**: The published HTTP reverse proxy (`threat_hunt_proxy`) binds strictly to `127.0.0.1:80` (or configured `${BIND_ADDRESS:-127.0.0.1}`). It is **not** accessible to other hosts on your local network, Wi-Fi, or public interfaces.
+- **Internal Microservice Isolation**: Internal services (`backend` on port 5000 and `zap` on port 8080) do not publish any ports to the host machine. All communication between Nginx, the frontend, the backend, and OWASP ZAP occurs exclusively within the isolated Docker bridge network (`threat-net`).
+- **Deliberate External Exposure**: If you intentionally deploy DecodeX to serve multiple users or teams on a network:
+  1. Set `BIND_ADDRESS=0.0.0.0` (or a specific interface IP) in `.env`.
+  2. **Never** expose DecodeX directly to an untrusted network or public Internet on port 80 without TLS.
+  3. Place DecodeX behind a hardened TLS reverse proxy (e.g. Cloudflare, Traefik, or corporate gateway) with strict firewall rules and HTTPS enabled.
+
+---
+
+## 7. Historical Secret Scrubbing
 
 If legacy test credentials exist in past commit history, follow the verified procedure in [docs/GIT_HISTORY_SCRUB_RUNBOOK.md](file:///Users/manan/Desktop/Projects/Threat-Hunting-Platform/docs/GIT_HISTORY_SCRUB_RUNBOOK.md) to rewrite repository commit objects using `git-filter-repo`.

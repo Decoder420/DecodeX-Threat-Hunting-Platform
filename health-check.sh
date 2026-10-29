@@ -46,11 +46,11 @@ check_healthcheck() {
 check_port() {
     local name=$1
     local port=$2
-    if docker port $name $port 2>/dev/null | grep -q "0.0.0.0:$port"; then
+    if docker port $name $port 2>/dev/null | grep -qE "(:|^)$port"; then
         echo -e "${GREEN}✓${NC}   Port $port mapped"
         return 0
     else
-        echo -e "${YELLOW}○${NC}   Port $port not mapped (may be fine if service bridges via other container)"
+        echo -e "${YELLOW}○${NC}   Port $port not mapped (internal service isolated to Docker network)"
         return 0
     fi
 }

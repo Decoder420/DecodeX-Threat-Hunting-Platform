@@ -52,6 +52,10 @@ cd DecodeX-Threat-Hunting-Platform
 > [!NOTE]
 > The auto-generated keys and default passwords initialized by `./scripts/first-run.sh` are intended strictly for **local evaluation**. In production environments, configure dedicated secrets manually in `.env`.
 
+> [!IMPORTANT]
+> **Network Exposure & Host Port Binding**:
+> By default, DecodeX binds exclusively to localhost (`127.0.0.1:80`). Internal services (`backend` on 5000, `zap` on 8080) do not publish host ports and communicate strictly over the internal Docker network. To deliberately expose the platform on a local network or server interface, configure `BIND_ADDRESS=0.0.0.0` in `.env` and ensure the stack is secured behind a firewall and TLS terminating proxy. See [SECURITY.md](SECURITY.md) for details.
+
 ---
 
 ## 🌟 Core Modules & Capabilities

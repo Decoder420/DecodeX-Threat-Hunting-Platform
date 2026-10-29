@@ -6,6 +6,11 @@ All notable changes, architectural enhancements, and security hardening mileston
 
 ## [Unreleased]
 
+### Security
+- **Localhost Port Binding Default**: Published ports now bind to `127.0.0.1` by default via `${BIND_ADDRESS:-127.0.0.1}:80:80` on the Nginx reverse proxy.
+- **Internal Service Isolation**: Backend (5001) and ZAP (8080) are no longer published to the host machine. Both services now communicate strictly over the internal isolated Docker bridge network (`threat-net`).
+- **Configurable Network Exposure**: Added `BIND_ADDRESS` override support in `.env.example` with clear security warnings to govern intentional multi-user or external deployments behind a firewall and TLS reverse proxy.
+
 ### Breaking Changes
 - **Enforced Non-Static Role Credentials**: `TH_ADMIN_PASSWORD`, `TH_ANALYST_PASSWORD`, and `TH_VIEWER_PASSWORD` no longer have static default values in `docker-compose.yaml` or `.env.example`. Directly invoking `docker compose up` without these variables set will now fail loud with an explicit error message. For local setup, run `./scripts/first-run.sh` to generate high-entropy 24-character credentials automatically, or define non-empty values manually in `.env`.
 - **Existing Deployments Unaffected**: The backend user seeding logic (`backend/src/th/db.py:865-875`) checks if accounts already exist in the database; existing deployments with an initialized database preserve their existing password hashes and will not overwrite credentials unless explicit, different passwords are provided in `.env`.
