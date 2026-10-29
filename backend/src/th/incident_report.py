@@ -59,12 +59,25 @@ def _esc(value: Any) -> str:
     )
 
 
-def _fmt_dt(value: datetime | None, *, with_time: bool = True) -> str:
+def _fmt_dt(value: datetime | None, tz_name: str = "UTC", *, with_time: bool = True) -> str:
     if not value:
         return "—"
+    try:
+        from zoneinfo import ZoneInfo
+        zi = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        from datetime import timezone as dt_tz
+        zi = dt_tz.utc
+
+    if value.tzinfo is None:
+        from datetime import timezone as dt_tz
+        value = value.replace(tzinfo=dt_tz.utc)
+
+    localized = value.astimezone(zi)
     if with_time:
-        return value.strftime("%d %B %Y %H:%M UTC")
-    return value.strftime("%d %B %Y")
+        tz_abbr = localized.strftime("%Z") or tz_name
+        return localized.strftime(f"%d %B %Y %H:%M {tz_abbr}")
+    return localized.strftime("%d %B %Y")
 
 
 def _severity_color(severity: str) -> colors.Color:
@@ -269,10 +282,26 @@ def _styles():
             "sign",
             parent=base["Normal"],
             fontName="Helvetica",
-            fontSize=10,
-            leading=14,
+            fontSize=8.5,
+            leading=12.5,
             textColor=INK,
-            spaceAfter=4,
+            spaceAfter=3,
+        ),
+        "sign_header": ParagraphStyle(
+            "sign_header",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=11,
+            textColor=NAVY,
+        ),
+        "sign_cell": ParagraphStyle(
+            "sign_cell",
+            parent=base["Normal"],
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11.5,
+            textColor=INK,
         ),
     }
     return styles
@@ -340,7 +369,7 @@ def _kv_table(rows: list[tuple[str, str]], width: float, styles) -> Table:
     return t
 
 
-def _page_footer(canvas, doc, incident_id: str):
+def _page_footer(canvas, doc, incident_id: str, company_name: str = "DecodeX Security Technologies"):
     canvas.saveState()
     page_w, page_h = A4
     # Top confidential ribbon
@@ -352,7 +381,7 @@ def _page_footer(canvas, doc, incident_id: str):
     canvas.setFont("Helvetica-Bold", 7)
     canvas.drawString(18 * mm, page_h - 11, "CONFIDENTIAL • INTERNAL SECURITY DOCUMENT")
     canvas.setFont("Helvetica", 7)
-    canvas.drawRightString(page_w - 18 * mm, page_h - 11, "DecodeX Security Technologies")
+    canvas.drawRightString(page_w - 18 * mm, page_h - 11, (company_name or "DecodeX Security Technologies")[:45])
 
     # Footer
     canvas.setStrokeColor(LINE)
@@ -361,7 +390,7 @@ def _page_footer(canvas, doc, incident_id: str):
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7.5)
     canvas.drawString(18 * mm, 9 * mm, f"{incident_id}  ·  {TEMPLATE_VERSION}")
-    canvas.drawCentredString(page_w / 2, 9 * mm, "Security Incident Report")
+    canvas.drawCentredString(page_w / 2, 9 * mm, f"{(company_name or 'Security')} — Incident Report")
     canvas.drawRightString(page_w - 18 * mm, 9 * mm, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -370,6 +399,11 @@ def _draw_full_cover(canvas, ctx: dict):
     """Full-bleed navy cover — unmistakable premium template."""
     page_w, page_h = A4
     incident_id = ctx["incident_id"]
+    company = (ctx.get("company_name") or "DECODEX SECURITY TECHNOLOGIES").upper()
+    tagline = ctx.get("tagline") or "Enterprise Threat Hunting & Modern Cloud SIEM"
+    tz = ctx.get("timezone") or "UTC"
+    contact = ctx.get("contact_email") or "soc@decodex.internal"
+
     canvas.saveState()
 
     # Background
@@ -404,17 +438,19 @@ def _draw_full_cover(canvas, ctx: dict):
         )
         canvas.setFillColor(ACCENT)
         canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(44 * mm, page_h - 30 * mm, "DECODEX SECURITY TECHNOLOGIES")
+        canvas.drawString(44 * mm, page_h - 30 * mm, f"{company[:32]}")
         canvas.setStrokeColor(ACCENT)
         canvas.setLineWidth(1.2)
-        canvas.line(44 * mm, page_h - 33 * mm, 115 * mm, page_h - 33 * mm)
+        line_end = min(140 * mm, 44 * mm + max(12, len(company)) * 2.8 * mm)
+        canvas.line(44 * mm, page_h - 33 * mm, line_end, page_h - 33 * mm)
     else:
         canvas.setFillColor(ACCENT)
         canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(22 * mm, page_h - 32 * mm, "DECODEX SECURITY TECHNOLOGIES")
+        canvas.drawString(22 * mm, page_h - 32 * mm, f"{company[:32]}")
         canvas.setStrokeColor(ACCENT)
         canvas.setLineWidth(1.2)
-        canvas.line(22 * mm, page_h - 35 * mm, 78 * mm, page_h - 35 * mm)
+        line_end = min(120 * mm, 22 * mm + max(12, len(company)) * 2.8 * mm)
+        canvas.line(22 * mm, page_h - 35 * mm, line_end, page_h - 35 * mm)
 
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 26)
@@ -423,7 +459,7 @@ def _draw_full_cover(canvas, ctx: dict):
 
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     canvas.setFont("Helvetica", 10)
-    canvas.drawString(22 * mm, page_h - 72 * mm, "Confidential  •  Internal Security Document")
+    canvas.drawString(22 * mm, page_h - 72 * mm, f"Confidential  •  {tagline[:50]}")
 
     # Incident ID badge
     badge_y = page_h - 92 * mm
@@ -443,7 +479,7 @@ def _draw_full_cover(canvas, ctx: dict):
     canvas.drawCentredString(115 * mm, badge_y + 3.5 * mm, sev)
 
     # Meta card
-    card_x, card_y, card_w, card_h = 22 * mm, 58 * mm, page_w - 44 * mm, 78 * mm
+    card_x, card_y, card_w, card_h = 22 * mm, 54 * mm, page_w - 44 * mm, 86 * mm
     canvas.setFillColor(colors.HexColor("#0E2A42"))
     canvas.roundRect(card_x, card_y, card_w, card_h, 4, fill=1, stroke=0)
     canvas.setStrokeColor(ACCENT)
@@ -451,38 +487,40 @@ def _draw_full_cover(canvas, ctx: dict):
     canvas.roundRect(card_x, card_y, card_w, card_h, 4, fill=0, stroke=1)
 
     title = (ctx.get("title") or "Security Incident")[:90]
+    target_display = ctx.get("target_web_url") or ctx.get("affected_asset") or "—"
     rows = [
         ("Incident Title", title),
         ("Incident ID", incident_id),
         ("Severity", sev),
         ("Status", ctx.get("status") or "—"),
-        ("Incident Date", _fmt_dt(ctx.get("incident_date"), with_time=False)),
-        ("Report Date", _fmt_dt(ctx.get("report_date"), with_time=False)),
-        ("Organization", (ctx.get("organization") or "—")[:60]),
+        ("Incident Date", _fmt_dt(ctx.get("incident_date"), tz, with_time=False)),
+        ("Report Date", _fmt_dt(ctx.get("report_date"), tz, with_time=False)),
+        ("Organization", (ctx.get("company_name") or ctx.get("organization") or "—")[:60]),
+        ("Target / Host", target_display[:65]),
     ]
-    y = card_y + card_h - 10 * mm
+    y = card_y + card_h - 9 * mm
     for label, value in rows:
         canvas.setFillColor(colors.HexColor("#7FA3B8"))
         canvas.setFont("Helvetica", 8)
         canvas.drawString(card_x + 6 * mm, y, label.upper())
         canvas.setFillColor(WHITE)
-        canvas.setFont("Helvetica-Bold", 10)
+        canvas.setFont("Helvetica-Bold", 9.5)
         # wrap long title lightly
         canvas.drawString(card_x + 48 * mm, y, str(value)[:72])
-        y -= 9.5 * mm
+        y -= 8.5 * mm
 
     # Prepared by
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(22 * mm, 44 * mm, "PREPARED BY")
+    canvas.drawString(22 * mm, 42 * mm, "PREPARED FOR & BY")
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(22 * mm, 37 * mm, "DecodeX Security Technologies Private Limited")
+    canvas.drawString(22 * mm, 35 * mm, (ctx.get("company_name") or "DecodeX Security Technologies Private Limited")[:50])
     canvas.setFont("Helvetica", 8.5)
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     lead = ctx.get("prepared_by") or "Manan Mandal"
     role = ctx.get("prepared_role") or "Information Security Engineer"
-    canvas.drawString(22 * mm, 31 * mm, f"Lead Analyst: {lead}  •  {role}")
+    canvas.drawString(22 * mm, 29 * mm, f"Lead Analyst: {lead}  •  {role}" + (f"  •  {contact}" if contact else ""))
 
     # Footer strip
     canvas.setFillColor(colors.HexColor("#071521"))
@@ -540,7 +578,13 @@ class AttackChainStrip(Flowable):
 
 def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> dict:
     """Assemble report context from alert + related SIEM data."""
-    from .db import Asset, Case, CaseAlert, CaseNote, Event, IOC
+    from .db import Asset, Case, CaseAlert, CaseNote, Event, IOC, WebTarget, get_org_settings
+
+    org_settings = get_org_settings(db)
+    company_name = (getattr(org_settings, "company_name", None) or "DecodeX Security Technologies").strip()
+    tagline = (getattr(org_settings, "tagline", None) or "Enterprise Threat Hunting & Modern Cloud SIEM").strip()
+    timezone_name = (getattr(org_settings, "timezone", None) or "UTC").strip()
+    contact_email = (getattr(org_settings, "contact_email", None) or "soc@decodex.internal").strip()
 
     when = alert.event_timestamp or alert.created_at or utcnow()
     incident_id = _incident_id(alert.id, when)
@@ -609,6 +653,19 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
     if alert.host:
         asset = db.query(Asset).filter_by(hostname=alert.host).first()
 
+    # Target web resolution (from alert URL, domain, or registered WebTarget)
+    target_web_url = getattr(alert, "url", "") or ""
+    target_web_name = ""
+    if not target_web_url and alert.host:
+        target_web = db.query(WebTarget).filter(
+            (WebTarget.name == alert.host) | (WebTarget.url.like(f"%{alert.host}%"))
+        ).first()
+        if target_web:
+            target_web_url = target_web.url
+            target_web_name = target_web.name
+    if not target_web_url and getattr(alert, "domain", None):
+        target_web_url = f"https://{alert.domain}"
+
     analyst = prepared_by or alert.assigned_to or "SOC Analyst"
     detection_source = alert.source_name or alert.source_type or "SIEM / Detection Engine"
     if (alert.source_type or "").lower() == "web":
@@ -616,28 +673,28 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
 
     timeline = []
     timeline.append({
-        "time": _fmt_dt(when, with_time=True),
+        "time": _fmt_dt(when, timezone_name, with_time=True),
         "event": "Suspicious activity detected",
         "action": f"Alert generated ({alert.rule_id or 'rule'})",
         "analyst": "Detection Engine",
     })
     if alert.created_at and alert.created_at != when:
         timeline.append({
-            "time": _fmt_dt(alert.created_at, with_time=True),
+            "time": _fmt_dt(alert.created_at, timezone_name, with_time=True),
             "event": "Alert persisted in SOC platform",
             "action": "Queued for analyst review",
             "analyst": "System",
         })
     for note in notes[:6]:
         timeline.append({
-            "time": _fmt_dt(note.created_at, with_time=True),
+            "time": _fmt_dt(note.created_at, timezone_name, with_time=True),
             "event": "Investigation note recorded",
             "action": (note.body or "")[:120],
             "analyst": note.author or analyst,
         })
     if (alert.status or "").upper() in {"CLOSED", "RESOLVED"}:
         timeline.append({
-            "time": _fmt_dt(alert.created_at or when, with_time=True),
+            "time": _fmt_dt(alert.created_at or when, timezone_name, with_time=True),
             "event": "Incident closed",
             "action": "Containment / recovery documented",
             "analyst": analyst,
@@ -645,7 +702,7 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
     # Enrich with event breadcrumbs
     for e in events[:8]:
         timeline.append({
-            "time": _fmt_dt(e.timestamp, with_time=True),
+            "time": _fmt_dt(e.timestamp, timezone_name, with_time=True),
             "event": f"Related telemetry: {e.process or e.event_type or 'event'}",
             "action": (e.commandline or e.url or e.ip or "")[:100] or "Log correlation",
             "analyst": "SIEM",
@@ -685,9 +742,9 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
 
     severity = (alert.severity or "MEDIUM").upper()
     status = _normalize_status(alert.status)
-    org = "DecodeX Security Technologies"
+    org = company_name
     if asset and getattr(asset, "owner", None):
-        org = f"{asset.owner} / DecodeX Security Technologies"
+        org = f"{asset.owner} / {company_name}"
 
     return {
         "incident_id": incident_id,
@@ -699,6 +756,12 @@ def build_incident_context(db, alert, *, prepared_by: str = "Manan Mandal") -> d
         "incident_date": when,
         "report_date": utcnow(),
         "organization": org,
+        "company_name": company_name,
+        "tagline": tagline,
+        "timezone": timezone_name,
+        "contact_email": contact_email,
+        "target_web_url": target_web_url,
+        "target_web_name": target_web_name or target_web_url or alert.host or "Web Application",
         "category": _category_from_alert(alert),
         "detection_source": detection_source,
         "affected_asset": alert.host or "Unknown",
@@ -734,6 +797,8 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
     incident_id = ctx["incident_id"]
     page_w, _ = A4
     content_w = page_w - 36 * mm
+    tz = ctx.get("timezone") or "UTC"
+    company_name = ctx.get("company_name") or "DecodeX Security Technologies"
 
     doc = SimpleDocTemplate(
         buffer,
@@ -755,12 +820,13 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
     # ---------- PAGE 2 EXECUTIVE SUMMARY ----------
     story.append(SectionBanner("1. Executive Summary", content_w))
     story.append(Spacer(1, 8))
+    target_info = f" (Target Web: <code>{_esc(ctx['target_web_url'])}</code>)" if ctx.get("target_web_url") else ""
     summary = (
-        f"On {_fmt_dt(ctx['incident_date'])}, the SOC detected "
+        f"On {_fmt_dt(ctx['incident_date'], tz)}, the SOC detected "
         f"<b>{_esc(ctx['title'])}</b> against asset "
-        f"<b>{_esc(ctx['affected_asset'])}</b>"
+        f"<b>{_esc(ctx['affected_asset'])}</b>{target_info}"
         + (f" involving user <b>{_esc(ctx['affected_user'])}</b>" if ctx["affected_user"] not in {"", "—"} else "")
-        + f". Detection originated from <b>{_esc(ctx['detection_source'])}</b>. "
+        + f". Detection originated from <b>{_esc(ctx['detection_source'])}</b> for <b>{_esc(company_name)}</b>. "
         f"The incident is currently classified as <b>{_esc(ctx['status'])}</b> "
         f"with severity <b>{_esc(ctx['severity'])}</b> "
         f"(risk score {ctx['risk_score']}/100, confidence {ctx['confidence']}%). "
@@ -774,7 +840,9 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
     story.append(
         _kv_table(
             [
+                ("Organization", company_name),
                 ("Incident ID", incident_id),
+                ("Target Web / Host", ctx.get("target_web_url") or ctx.get("affected_asset") or "—"),
                 ("Severity", ctx["severity"]),
                 ("Category", ctx["category"]),
                 ("Detection Source", ctx["detection_source"]),
@@ -1016,23 +1084,38 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
     story.append(Spacer(1, 16))
     story.append(Paragraph("Report Ownership", styles["h2"]))
     story.append(Spacer(1, 6))
+
+    rep_date_str = _fmt_dt(ctx.get("report_date"), tz, with_time=False)
     ownership = Table(
         [
             [
-                Paragraph("<b>Prepared By</b>", styles["sign"]),
-                Paragraph("<b>Reviewed By</b>", styles["sign"]),
-                Paragraph("<b>Approved By</b>", styles["sign"]),
+                Paragraph("<b>PREPARED BY (SOC Analyst)</b>", styles["sign_header"]),
+                Paragraph("<b>REVIEWED BY (SOC Lead)</b>", styles["sign_header"]),
+                Paragraph("<b>APPROVED BY (CISO / Director)</b>", styles["sign_header"]),
             ],
             [
-                Paragraph(
-                    f"{_esc(ctx['prepared_by'])}<br/>{_esc(ctx['prepared_role'])}",
-                    styles["sign"],
-                ),
-                Paragraph("[Name / Designation]<br/><br/>Signature: ____________", styles["sign"]),
-                Paragraph("[Name / Designation]<br/><br/>Signature: ____________", styles["sign"]),
+                Paragraph(f"<b>Name:</b><br/>{_esc(ctx['prepared_by'])}", styles["sign_cell"]),
+                Paragraph("<b>Name:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Name:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph(f"<b>Designation:</b><br/>{_esc(ctx['prepared_role'])}<br/><font size='7' color='#5B6B7C'>{_esc(company_name[:35])}</font>", styles["sign_cell"]),
+                Paragraph("<b>Designation:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Designation:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph(f"<b>Date:</b><br/>{rep_date_str}", styles["sign_cell"]),
+                Paragraph("<b>Date:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Date:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph("<b>Signature / Approval:</b><br/><br/><font color='#0B1F33'><b>[ Verified Digital Record ]</b></font>", styles["sign_cell"]),
+                Paragraph("<b>Signature / Stamp:</b><br/><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Signature / Stamp:</b><br/><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
             ],
         ],
         colWidths=[content_w / 3.0] * 3,
+        rowHeights=[24, 38, 38, 34, 52],
     )
     ownership.setStyle(
         TableStyle(
@@ -1043,8 +1126,8 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
@@ -1059,7 +1142,7 @@ def render_incident_pdf(ctx: dict) -> io.BytesIO:
     )
 
     def _later_pages(canvas, doc_):
-        _page_footer(canvas, doc_, incident_id)
+        _page_footer(canvas, doc_, incident_id, company_name=company_name)
 
     def _first_page(canvas, doc_):
         _draw_full_cover(canvas, ctx)

@@ -61,12 +61,25 @@ def _esc(value: Any) -> str:
     )
 
 
-def _fmt_dt(value: datetime | None, *, with_time: bool = True) -> str:
+def _fmt_dt(value: datetime | None, tz_name: str = "UTC", *, with_time: bool = True) -> str:
     if not value:
         return "—"
+    try:
+        from zoneinfo import ZoneInfo
+        zi = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        from datetime import timezone as dt_tz
+        zi = dt_tz.utc
+
+    if value.tzinfo is None:
+        from datetime import timezone as dt_tz
+        value = value.replace(tzinfo=dt_tz.utc)
+
+    localized = value.astimezone(zi)
     if with_time:
-        return value.strftime("%d %B %Y %H:%M UTC")
-    return value.strftime("%d %B %Y")
+        tz_abbr = localized.strftime("%Z") or tz_name
+        return localized.strftime(f"%d %B %Y %H:%M {tz_abbr}")
+    return localized.strftime("%d %B %Y")
 
 
 def _severity_color(severity: str) -> colors.Color:
@@ -181,16 +194,32 @@ def _styles():
             "sign",
             parent=base["Normal"],
             fontName="Helvetica",
-            fontSize=9.5,
-            leading=13.5,
+            fontSize=8.5,
+            leading=12.5,
             textColor=INK,
-            spaceAfter=4,
+            spaceAfter=3,
+        ),
+        "sign_header": ParagraphStyle(
+            "sign_header",
+            parent=base["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=11,
+            textColor=NAVY,
+        ),
+        "sign_cell": ParagraphStyle(
+            "sign_cell",
+            parent=base["Normal"],
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11.5,
+            textColor=INK,
         ),
     }
     return styles
 
 
-def _page_footer(canvas, doc, was_id: str):
+def _page_footer(canvas, doc, was_id: str, company_name: str = "DecodeX Security Technologies"):
     canvas.saveState()
     page_w, page_h = A4
     # Top confidential ribbon
@@ -202,7 +231,7 @@ def _page_footer(canvas, doc, was_id: str):
     canvas.setFont("Helvetica-Bold", 7)
     canvas.drawString(18 * mm, page_h - 11, "CONFIDENTIAL • WEB APPLICATION SECURITY ASSESSMENT")
     canvas.setFont("Helvetica", 7)
-    canvas.drawRightString(page_w - 18 * mm, page_h - 11, "DecodeX Security Technologies")
+    canvas.drawRightString(page_w - 18 * mm, page_h - 11, (company_name or "DecodeX Security Technologies")[:45])
 
     # Footer
     canvas.setStrokeColor(LINE)
@@ -211,7 +240,7 @@ def _page_footer(canvas, doc, was_id: str):
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7.5)
     canvas.drawString(18 * mm, 9 * mm, f"{was_id}  ·  {TEMPLATE_VERSION}")
-    canvas.drawCentredString(page_w / 2, 9 * mm, "Web Vulnerability Assessment Report")
+    canvas.drawCentredString(page_w / 2, 9 * mm, f"{(company_name or 'Web Application')} — Vulnerability Report")
     canvas.drawRightString(page_w - 18 * mm, 9 * mm, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -220,6 +249,11 @@ def _draw_full_cover(canvas, ctx: dict):
     """Full-bleed navy cover page."""
     page_w, page_h = A4
     was_id = ctx["report_id"]
+    company = (ctx.get("company_name") or "DECODEX SECURITY TECHNOLOGIES").upper()
+    tagline = ctx.get("tagline") or "DAST Scan & Attack Surface Security Report"
+    tz = ctx.get("timezone") or "UTC"
+    contact = ctx.get("contact_email") or "soc@decodex.internal"
+
     canvas.saveState()
 
     # Background
@@ -254,17 +288,19 @@ def _draw_full_cover(canvas, ctx: dict):
         )
         canvas.setFillColor(ACCENT)
         canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(44 * mm, page_h - 30 * mm, "DECODEX SECURITY TECHNOLOGIES  •  WEB APPSEC")
+        canvas.drawString(44 * mm, page_h - 30 * mm, f"{company[:32]}  •  WEB APPSEC")
         canvas.setStrokeColor(ACCENT)
         canvas.setLineWidth(1.2)
-        canvas.line(44 * mm, page_h - 33 * mm, 130 * mm, page_h - 33 * mm)
+        line_end = min(140 * mm, 44 * mm + max(12, len(company)) * 2.8 * mm)
+        canvas.line(44 * mm, page_h - 33 * mm, line_end, page_h - 33 * mm)
     else:
         canvas.setFillColor(ACCENT)
         canvas.setFont("Helvetica-Bold", 10)
-        canvas.drawString(22 * mm, page_h - 32 * mm, "DECODEX SECURITY TECHNOLOGIES  •  WEB APPSEC")
+        canvas.drawString(22 * mm, page_h - 32 * mm, f"{company[:32]}  •  WEB APPSEC")
         canvas.setStrokeColor(ACCENT)
         canvas.setLineWidth(1.2)
-        canvas.line(22 * mm, page_h - 35 * mm, 95 * mm, page_h - 35 * mm)
+        line_end = min(120 * mm, 22 * mm + max(12, len(company)) * 2.8 * mm)
+        canvas.line(22 * mm, page_h - 35 * mm, line_end, page_h - 35 * mm)
 
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 25)
@@ -273,7 +309,7 @@ def _draw_full_cover(canvas, ctx: dict):
 
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     canvas.setFont("Helvetica", 10)
-    canvas.drawString(22 * mm, page_h - 72 * mm, "DAST Scan & Attack Surface Security Report")
+    canvas.drawString(22 * mm, page_h - 72 * mm, f"DAST Scan & Attack Surface Security Report  •  {tagline[:50]}")
 
     # Document ID badge
     badge_y = page_h - 92 * mm
@@ -293,7 +329,7 @@ def _draw_full_cover(canvas, ctx: dict):
     canvas.drawCentredString(122 * mm, badge_y + 3.5 * mm, f"RISK: {risk_sev}")
 
     # Meta card
-    card_x, card_y, card_w, card_h = 22 * mm, 58 * mm, page_w - 44 * mm, 80 * mm
+    card_x, card_y, card_w, card_h = 22 * mm, 54 * mm, page_w - 44 * mm, 86 * mm
     canvas.setFillColor(colors.HexColor("#0E2A42"))
     canvas.roundRect(card_x, card_y, card_w, card_h, 4, fill=1, stroke=0)
     canvas.setStrokeColor(ACCENT)
@@ -301,36 +337,37 @@ def _draw_full_cover(canvas, ctx: dict):
     canvas.roundRect(card_x, card_y, card_w, card_h, 4, fill=0, stroke=1)
 
     rows = [
-        ("Target Name", ctx.get("target_name") or "Web Target"),
-        ("Target URL", ctx.get("target_url") or "—"),
+        ("Organization", (ctx.get("company_name") or "—")[:60]),
+        ("Target Name", (ctx.get("target_name") or "Web Target")[:60]),
+        ("Target URL", (ctx.get("target_url") or "—")[:60]),
         ("Scan Profile", f"{ctx.get('profile')} (ZAP + Nuclei + HTTPX)"),
         ("Scan Status", ctx.get("status") or "COMPLETED"),
         ("Overall Risk Score", f"{ctx.get('risk_score')}/100"),
         ("Total Findings", f"{ctx.get('findings_count')} issues detected"),
-        ("Scan Completed", _fmt_dt(ctx.get("finished_at"), with_time=True)),
+        ("Scan Completed", _fmt_dt(ctx.get("finished_at"), tz, with_time=True)),
         ("Discovered URLs", f"{ctx.get('discovered_urls')} endpoints"),
     ]
-    y = card_y + card_h - 10 * mm
+    y = card_y + card_h - 9 * mm
     for label, value in rows:
         canvas.setFillColor(colors.HexColor("#7FA3B8"))
         canvas.setFont("Helvetica", 8)
         canvas.drawString(card_x + 6 * mm, y, label.upper())
         canvas.setFillColor(WHITE)
-        canvas.setFont("Helvetica-Bold", 9.5)
+        canvas.setFont("Helvetica-Bold", 9)
         canvas.drawString(card_x + 48 * mm, y, str(value)[:65])
-        y -= 9 * mm
+        y -= 8.5 * mm
 
     # Prepared by
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(22 * mm, 44 * mm, "ASSESSMENT CONDUCTED BY")
+    canvas.drawString(22 * mm, 42 * mm, "ASSESSMENT CONDUCTED FOR & BY")
     canvas.setFillColor(WHITE)
     canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(22 * mm, 37 * mm, "DecodeX Security Technologies Private Limited")
+    canvas.drawString(22 * mm, 35 * mm, (ctx.get("company_name") or "DecodeX Security Technologies Private Limited")[:50])
     canvas.setFont("Helvetica", 8.5)
     canvas.setFillColor(colors.HexColor("#9BB4C7"))
     lead = ctx.get("prepared_by") or "Manan Mandal"
-    canvas.drawString(22 * mm, 31 * mm, f"Lead Security Engineer: {lead}  •  SOC Operations")
+    canvas.drawString(22 * mm, 29 * mm, f"Lead Security Engineer: {lead}  •  {contact}")
 
     # Footer strip
     canvas.setFillColor(colors.HexColor("#071521"))
@@ -394,12 +431,23 @@ def build_scan_context(db, scan, *, prepared_by: str = "Manan Mandal") -> dict:
         except Exception:
             tech = []
 
+    from .db import get_org_settings
+    org_settings = get_org_settings(db)
+    company_name = (getattr(org_settings, "company_name", None) or "DecodeX Security Technologies").strip()
+    tagline = (getattr(org_settings, "tagline", None) or "Enterprise Threat Hunting & Modern Cloud SIEM").strip()
+    timezone_name = (getattr(org_settings, "timezone", None) or "UTC").strip()
+    contact_email = (getattr(org_settings, "contact_email", None) or "soc@decodex.internal").strip()
+
     return {
         "report_id": report_id,
         "scan_id": scan.id,
         "target_id": scan.target_id,
         "target_name": target.name if target else "Web Target",
         "target_url": target.url if target else getattr(scan, "target_url", ""),
+        "company_name": company_name,
+        "tagline": tagline,
+        "timezone": timezone_name,
+        "contact_email": contact_email,
         "profile": getattr(scan, "scan_profile", "STANDARD"),
         "status": scan.status,
         "risk_score": getattr(scan, "risk_score", 0) or 0,
@@ -431,6 +479,8 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
     page_w, _ = A4
     content_w = page_w - 36 * mm
 
+    tz = ctx.get("timezone") or "UTC"
+
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -455,9 +505,9 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
     summary_text = (
         f"A comprehensive Dynamic Application Security Testing (DAST) assessment was conducted against "
         f"<b>{_esc(ctx['target_name'])}</b> (<code>{_esc(ctx['target_url'])}</code>) on "
-        f"{_fmt_dt(ctx['started_at'])}. Testing was orchestrated using multi-engine verification, "
+        f"{_fmt_dt(ctx['started_at'], tz)}. Testing was orchestrated using multi-engine verification, "
         f"combining OWASP ZAP spidering and passive security inspection, ProjectDiscovery Nuclei template analysis, "
-        f"and built-in HTTP attack surface discovery. "
+        f"and built-in HTTP attack surface discovery for <b>{_esc(ctx.get('company_name', 'Enterprise'))}</b>. "
         f"The scan concluded with status <b>{_esc(ctx['status'])}</b>, identifying a total of "
         f"<b>{ctx['findings_count']} security finding(s)</b> and producing an aggregate risk score of "
         f"<b>{ctx['risk_score']}/100 ({ctx['overall_risk_severity']})</b>."
@@ -510,6 +560,7 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
 
     surface_rows = [
         [Paragraph("<b>Parameter</b>", styles["table_header"]), Paragraph("<b>Details</b>", styles["table_header"])],
+        [Paragraph("Organization", styles["table_cell_bold"]), Paragraph(_esc(ctx.get("company_name", "—")), styles["table_cell"])],
         [Paragraph("Target URL", styles["table_cell_bold"]), Paragraph(_esc(ctx["target_url"]), styles["table_cell"])],
         [Paragraph("Discovered Endpoints", styles["table_cell_bold"]), Paragraph(f"{ctx['discovered_urls']} crawled URLs & paths", styles["table_cell"])],
         [Paragraph("Open Service Ports", styles["table_cell_bold"]), Paragraph(f"{ctx['discovered_ports']} detected services", styles["table_cell"])],
@@ -521,7 +572,7 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
             ),
         ],
         [Paragraph("Scan Profile", styles["table_cell_bold"]), Paragraph(f"{ctx['profile']} — Active DAST Suite", styles["table_cell"])],
-        [Paragraph("Execution Window", styles["table_cell_bold"]), Paragraph(f"{_fmt_dt(ctx['started_at'])} to {_fmt_dt(ctx['finished_at'])}", styles["table_cell"])],
+        [Paragraph("Execution Window", styles["table_cell_bold"]), Paragraph(f"{_fmt_dt(ctx['started_at'], tz)} to {_fmt_dt(ctx['finished_at'], tz)}", styles["table_cell"])],
     ]
     surface_table = Table(surface_rows, colWidths=[content_w * 0.32, content_w * 0.68])
     surface_table.setStyle(
@@ -675,24 +726,40 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
 
     # Ownership & Sign-off
     story.append(Paragraph("<b>Report Ownership & Sign-Off</b>", styles["h3"]))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 5))
+
+    scan_date_str = _fmt_dt(ctx.get("finished_at") or ctx.get("started_at"), tz, with_time=False)
+    company_name = ctx.get("company_name") or "DecodeX Security Technologies"
     ownership = Table(
         [
             [
-                Paragraph("<b>Lead Security Assessor</b>", styles["sign"]),
-                Paragraph("<b>SOC Lead / Reviewer</b>", styles["sign"]),
-                Paragraph("<b>CISO / Authorization</b>", styles["sign"]),
+                Paragraph("<b>LEAD SECURITY ASSESSOR</b>", styles["sign_header"]),
+                Paragraph("<b>SOC LEAD / REVIEWER</b>", styles["sign_header"]),
+                Paragraph("<b>CISO / AUTHORIZATION</b>", styles["sign_header"]),
             ],
             [
-                Paragraph(
-                    f"{_esc(ctx['prepared_by'])}<br/>Information Security Engineer<br/><br/>Status: Verified",
-                    styles["sign"],
-                ),
-                Paragraph("[SOC Team Lead]<br/>Incident Response & Triage<br/><br/>Signature: ____________", styles["sign"]),
-                Paragraph("[Chief Information Security Officer]<br/>Security Operations<br/><br/>Signature: ____________", styles["sign"]),
+                Paragraph(f"<b>Name:</b><br/>{_esc(ctx['prepared_by'])}", styles["sign_cell"]),
+                Paragraph("<b>Name:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Name:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph(f"<b>Designation:</b><br/>Lead Security Assessor<br/><font size='7' color='#5B6B7C'>{_esc(company_name[:35])}</font>", styles["sign_cell"]),
+                Paragraph("<b>Designation:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Designation:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph(f"<b>Date:</b><br/>{scan_date_str}", styles["sign_cell"]),
+                Paragraph("<b>Date:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Date:</b><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+            ],
+            [
+                Paragraph("<b>Signature / Approval:</b><br/><br/><font color='#0B1F33'><b>[ Verified Digital Record ]</b></font>", styles["sign_cell"]),
+                Paragraph("<b>Signature / Stamp:</b><br/><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
+                Paragraph("<b>Signature / Stamp:</b><br/><br/><font color='#8A99A8'>____________________________________</font>", styles["sign_cell"]),
             ],
         ],
         colWidths=[content_w / 3.0] * 3,
+        rowHeights=[24, 38, 38, 34, 52],
     )
     ownership.setStyle(
         TableStyle(
@@ -703,8 +770,8 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
@@ -719,7 +786,7 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
     )
 
     def _later_pages(canvas, doc_):
-        _page_footer(canvas, doc_, was_id)
+        _page_footer(canvas, doc_, was_id, company_name=ctx.get("company_name", "DecodeX Security Technologies"))
 
     def _first_page(canvas, doc_):
         _draw_full_cover(canvas, ctx)
