@@ -34,6 +34,7 @@ WEBSCAN_DEMO_MODE = _bool("WEBSCAN_DEMO_MODE", False)
 
 NUCLEI_ENABLED = _bool("NUCLEI_ENABLED", True)
 NUCLEI_PATH = os.environ.get("NUCLEI_PATH", "nuclei")
+NUCLEI_TIMEOUT = max(5, _int("NUCLEI_TIMEOUT", 120))
 
 NMAP_ENABLED = _bool("NMAP_ENABLED", True)
 NMAP_PATH = os.environ.get("NMAP_PATH", "nmap")

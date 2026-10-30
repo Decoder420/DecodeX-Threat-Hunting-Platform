@@ -19,6 +19,7 @@ from .config import (
     NMAP_PATH,
     NUCLEI_ENABLED,
     NUCLEI_PATH,
+    NUCLEI_TIMEOUT,
     WEBSCAN_ALLOW_PRIVATE_TARGETS,
     WEBSCAN_TIMEOUT,
     ZAP_API_KEY,
@@ -120,7 +121,7 @@ def run_nuclei(url: str, *, timeout: int | None = None) -> tuple[list[dict], str
     binary = _which(NUCLEI_PATH)
     if not binary:
         return [], "Nuclei binary not found"
-    timeout = timeout or min(WEBSCAN_TIMEOUT, 120)
+    timeout = timeout or NUCLEI_TIMEOUT
     # Safe-ish tags only — no intrusive exploit templates by default
     cmd = [
         binary,

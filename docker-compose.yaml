@@ -27,6 +27,7 @@ services:
       # SECURITY WARNING: Setting to true permits scanning RFC1918 / localhost / internal IP ranges (SSRF risk).
       # Shipped as false by default. Explicit opt-in via WEBSCAN_ALLOW_PRIVATE_TARGETS=true in .env for isolated lab use only.
       - WEBSCAN_ALLOW_PRIVATE_TARGETS=${WEBSCAN_ALLOW_PRIVATE_TARGETS:-false}
+      - NUCLEI_TIMEOUT=${NUCLEI_TIMEOUT:-120}
       - ZAP_ENABLED=true
       - ZAP_URL=http://zap:8080
       - ZAP_API_KEY=${ZAP_API_KEY:?ZAP_API_KEY must be set in .env}
