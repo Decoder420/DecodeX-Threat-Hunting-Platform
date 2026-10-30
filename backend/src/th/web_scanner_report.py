@@ -215,6 +215,14 @@ def _styles():
             leading=11.5,
             textColor=INK,
         ),
+        "callout_warn": ParagraphStyle(
+            "callout_warn",
+            parent=base["Normal"],
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=12,
+            textColor=CRIT,
+        ),
     }
     return styles
 
@@ -468,6 +476,7 @@ def build_scan_context(db, scan, *, prepared_by: str = "Manan Mandal") -> dict:
         "findings": findings,
         "target": target,
         "scan": scan,
+        "error_message": getattr(scan, "error_message", "") or "",
     }
 
 
@@ -514,6 +523,27 @@ def render_web_scan_pdf(ctx: dict) -> io.BytesIO:
     )
     story.append(Paragraph(summary_text, styles["body"]))
     story.append(Spacer(1, 8))
+
+    if ctx.get("error_message") or ctx.get("status") == "PARTIAL":
+        err_msg = _esc(ctx.get("error_message") or "One or more scan engines encountered errors or were unavailable.")
+        warn_data = [
+            [
+                Paragraph(f"<b>⚠️ Scan Engine Diagnostics / Partial Scan Notice:</b><br/>{err_msg}", styles["callout_warn"]),
+            ]
+        ]
+        warn_table = Table(warn_data, colWidths=[content_w])
+        warn_table.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF3F2")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#FECDCA")),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ])
+        )
+        story.append(warn_table)
+        story.append(Spacer(1, 8))
 
     # KPI Matrix
     story.append(Paragraph("<b>Vulnerability Severity Distribution</b>", styles["h3"]))

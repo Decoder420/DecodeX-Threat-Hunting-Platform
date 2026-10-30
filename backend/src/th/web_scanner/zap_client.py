@@ -36,6 +36,17 @@ ZAP_RISK_MAP = {
 }
 
 
+class ZapApiError(Exception):
+    """Raised when the OWASP ZAP API returns an error response."""
+
+    def __init__(self, endpoint: str, code: str, message: str, status_code: int = 400):
+        self.endpoint = endpoint
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        super().__init__(f"ZAP API error on {endpoint} [{code}]: {message}")
+
+
 class ZapClient:
     """Enterprise client for OWASP ZAP 2.14+ REST API."""
 
@@ -50,7 +61,7 @@ class ZapClient:
         self,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
-        timeout: int = 15,
+        timeout: int = 30,
         method: str = "GET",
     ) -> requests.Response:
         """Issue an authenticated request to ZAP API."""
@@ -58,9 +69,47 @@ class ZapClient:
         p = dict(params or {})
         if self.api_key and "apikey" not in p:
             p["apikey"] = self.api_key
-        if method == "POST":
-            return self._session.post(url, data=p, timeout=timeout)
-        return self._session.get(url, params=p, timeout=timeout)
+        try:
+            if method == "POST":
+                res = self._session.post(url, data=p, timeout=timeout)
+            else:
+                res = self._session.get(url, params=p, timeout=timeout)
+        except requests.exceptions.RequestException as exc:
+            raw_err = str(exc)
+            safe_err = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', raw_err)
+            safe_err = re.sub(r'password=[^&\s\)\'"]+', 'password=[REDACTED]', safe_err)
+            safe_err = re.sub(r'token=[^&\s\)\'"]+', 'token=[REDACTED]', safe_err)
+            safe_err = re.sub(r'Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]', safe_err)
+            raise ZapApiError(
+                endpoint=endpoint,
+                code="CONNECTION_ERROR",
+                message=f"Failed to connect to ZAP: {safe_err}",
+                status_code=0,
+            ) from None
+
+        # Inspect ZAP error response payloads (e.g. {"code": "...", "message": "..."})
+        try:
+            data = res.json()
+            if isinstance(data, dict) and "code" in data and "message" in data:
+                err_code = str(data.get("code") or "error").upper()
+                raw_msg = str(data.get("message") or "")
+                safe_msg = re.sub(r'apikey=[^&\s]+', 'apikey=[REDACTED]', raw_msg)
+                safe_msg = re.sub(r'password=[^&\s]+', 'password=[REDACTED]', safe_msg)
+                safe_msg = re.sub(r'token=[^&\s]+', 'token=[REDACTED]', safe_msg)
+                safe_msg = re.sub(r'Bearer\s+[A-Za-z0-9._~+/-]+', 'Bearer [REDACTED]', safe_msg)
+                raise ZapApiError(endpoint=endpoint, code=err_code, message=safe_msg, status_code=res.status_code)
+        except ValueError:
+            pass
+
+        if not res.ok:
+            raise ZapApiError(
+                endpoint=endpoint,
+                code=f"HTTP_{res.status_code}",
+                message=f"ZAP returned HTTP status {res.status_code}",
+                status_code=res.status_code,
+            )
+
+        return res
 
     # -------------------------------------------------------------------------
     # 1. Health Checks & Capability Discovery
@@ -118,7 +167,8 @@ class ZapClient:
 
             return status
         except Exception as exc:
-            status["error"] = f"Cannot reach ZAP daemon: {exc}"
+            safe_err = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            status["error"] = f"Cannot reach ZAP daemon: {safe_err}"
             return status
 
     # -------------------------------------------------------------------------
@@ -132,55 +182,58 @@ class ZapClient:
         exclude_regexes: Optional[List[str]] = None,
     ) -> Optional[str]:
         """Create an isolated, scoped ZAP context for a target to prevent scanning out-of-scope assets."""
-        try:
-            # 1. New Context
-            res = self._req("context/action/newContext/", {"contextName": context_name}, method="POST")
-            cid = None
-            if res.ok:
-                cid = (res.json() or {}).get("contextId")
+        # 1. New Context
+        res = self._req("context/action/newContext/", {"contextName": context_name}, method="POST")
+        cid = None
+        if res.ok:
+            cid = str((res.json() or {}).get("contextId") or "")
 
-            # 2. Scope include regex (defaults to target origin prefix)
-            parsed = urlparse(target_url)
-            host_pattern = re.escape(parsed.netloc or parsed.hostname or "")
-            regex = include_regex or f"^{re.escape(parsed.scheme)}://{host_pattern}.*$"
-            self._req("context/action/includeInContext/", {"contextName": context_name, "regexUrl": regex}, method="POST")
+        # 2. Scope include regex (defaults to target origin prefix)
+        parsed = urlparse(target_url)
+        host_pattern = re.escape(parsed.netloc or parsed.hostname or "")
+        regex = include_regex or f"^{re.escape(parsed.scheme)}://{host_pattern}.*$"
+        self._req("context/action/includeInContext/", {"contextName": context_name, "regex": regex}, method="POST")
 
-            # 3. Scope exclude regexes (logout, dangerous actions)
-            defaults_exclude = [
-                r".*logout.*",
-                r".*signout.*",
-                r".*delete-account.*",
-            ]
-            for ex in (exclude_regexes or defaults_exclude):
-                self._req("context/action/excludeFromContext/", {"contextName": context_name, "regexUrl": ex}, method="POST")
+        # 3. Scope exclude regexes (logout, dangerous actions)
+        defaults_exclude = [
+            r".*logout.*",
+            r".*signout.*",
+            r".*delete-account.*",
+        ]
+        for ex in (exclude_regexes or defaults_exclude):
+            self._req("context/action/excludeFromContext/", {"contextName": context_name, "regex": ex}, method="POST")
 
-            # 4. Set in scope
-            self._req("context/action/setContextInScope/", {"contextName": context_name, "booleanInScope": "true"}, method="POST")
-            return cid
-        except Exception as exc:
-            logger.warning("Failed creating ZAP context '%s': %s", context_name, exc)
-            return None
+        # 4. Set in scope
+        self._req("context/action/setContextInScope/", {"contextName": context_name, "booleanInScope": "true"}, method="POST")
+        return cid
 
     def configure_custom_headers(self, headers_dict: Dict[str, str]) -> None:
         """Inject custom HTTP request headers (e.g. Authorization, X-API-Key) via Replacer extension if available."""
         if not headers_dict:
             return
         for header_name, header_value in headers_dict.items():
+            desc = f"DecodeX Header {header_name}"
+            try:
+                self._req("replacer/action/removeRule/", {"description": desc}, method="POST")
+            except Exception:
+                pass
             try:
                 self._req(
                     "replacer/action/addRule/",
                     {
-                        "description": f"DecodeX Header {header_name}",
+                        "description": desc,
                         "enabled": "true",
                         "matchType": "REQ_HEADER",
+                        "matchRegex": "false",
                         "matchString": header_name,
                         "replacement": header_value,
                         "initiators": "",
                     },
                     method="POST",
                 )
-            except Exception:
-                pass
+            except ZapApiError as exc:
+                if exc.code != "ALREADY_EXISTS":
+                    raise
 
     def configure_auth_credentials(
         self,
@@ -188,68 +241,79 @@ class ZapClient:
         auth_type: str,
         auth_config: Dict[str, Any],
         target_url: str,
+        context_id: Optional[str] = None,
     ) -> bool:
         """Configure authentication in ZAP context (form-based or header/token) without logging credentials."""
         if not auth_type or auth_type == "none" or not auth_config:
             return False
 
-        try:
-            auth_type_norm = (auth_type or "").lower().strip()
-            if auth_type_norm in {"token", "bearer", "custom_header"}:
-                header_name = auth_config.get("header_name") or "Authorization"
-                header_val = auth_config.get("token") or auth_config.get("header_value") or ""
-                if header_val:
-                    if auth_type_norm == "bearer" and not header_val.lower().startswith("bearer "):
-                        header_val = f"Bearer {header_val}"
-                    self.configure_custom_headers({header_name: header_val})
-                    logger.info("Configured ZAP authenticated scanning via header: %s", header_name)
-                    return True
+        auth_type_norm = (auth_type or "").lower().strip()
+        if auth_type_norm in {"token", "bearer", "custom_header"}:
+            header_name = auth_config.get("header_name") or "Authorization"
+            header_val = auth_config.get("token") or auth_config.get("header_value") or ""
+            if header_val:
+                if auth_type_norm == "bearer" and not header_val.lower().startswith("bearer "):
+                    header_val = f"Bearer {header_val}"
+                self.configure_custom_headers({header_name: header_val})
+                logger.info("Configured ZAP authenticated scanning via header: %s", header_name)
+                return True
+            return False
 
-            elif auth_type_norm == "form":
-                login_url = auth_config.get("login_url") or target_url
-                login_request_data = auth_config.get("login_request_data") or ""
-                username = auth_config.get("username") or ""
-                password = auth_config.get("password") or ""
-                username_field = auth_config.get("username_field") or "username"
-                password_field = auth_config.get("password_field") or "password"
-                if not login_request_data and username:
-                    login_request_data = f"{username_field}={{%username%}}&{password_field}={{%password%}}"
+        elif auth_type_norm == "form":
+            cid_str = str(context_id or "")
+            if not cid_str:
+                try:
+                    c_res = self._req("context/view/context/", {"contextName": context_name})
+                    if c_res.ok:
+                        ctx_obj = (c_res.json() or {}).get("context") or {}
+                        cid_str = str(ctx_obj.get("id") or "")
+                except Exception:
+                    pass
+            cid_str = cid_str or "1"
 
-                method_config = f"loginUrl={login_url}&loginRequestData={login_request_data}"
-                self._req("authentication/action/setAuthenticationMethod/", {
-                    "contextName": context_name,
-                    "authMethodName": "formBasedAuthentication",
-                    "authMethodConfigParams": method_config,
+            login_url = auth_config.get("login_url") or target_url
+            login_request_data = auth_config.get("login_request_data") or ""
+            username = auth_config.get("username") or ""
+            password = auth_config.get("password") or ""
+            username_field = auth_config.get("username_field") or "username"
+            password_field = auth_config.get("password_field") or "password"
+            if not login_request_data and username:
+                login_request_data = f"{username_field}={{%username%}}&{password_field}={{%password%}}"
+
+            method_config = f"loginUrl={login_url}&loginRequestData={login_request_data}"
+            self._req("authentication/action/setAuthenticationMethod/", {
+                "contextId": cid_str,
+                "authMethodName": "formBasedAuthentication",
+                "authMethodConfigParams": method_config,
+            }, method="POST")
+
+            u_res = self._req("users/action/newUser/", {
+                "contextId": cid_str,
+                "name": username or "scan_user",
+            }, method="POST")
+            uid = (u_res.json() or {}).get("userId")
+            if uid:
+                cred_config = f"username={username}&password={password}"
+                self._req("users/action/setAuthenticationCredentials/", {
+                    "contextId": cid_str,
+                    "userId": str(uid),
+                    "authCredentialsConfigParams": cred_config,
                 }, method="POST")
-
-                u_res = self._req("users/action/newUser/", {
-                    "contextName": context_name,
-                    "name": username or "scan_user",
+                self._req("users/action/setUserEnabled/", {
+                    "contextId": cid_str,
+                    "userId": str(uid),
+                    "enabled": "true",
                 }, method="POST")
-                uid = (u_res.json() or {}).get("userId")
-                if uid:
-                    cred_config = f"username={username}&password={password}"
-                    self._req("users/action/setAuthenticationCredentials/", {
-                        "contextName": context_name,
-                        "userId": str(uid),
-                        "authCredentialsConfigParams": cred_config,
-                    }, method="POST")
-                    self._req("users/action/setUserEnabled/", {
-                        "contextName": context_name,
-                        "userId": str(uid),
-                        "enabled": "true",
-                    }, method="POST")
-                    self._req("forcedUser/action/setForcedUser/", {
-                        "contextName": context_name,
-                        "userId": str(uid),
-                    }, method="POST")
-                    self._req("forcedUser/action/setForcedUserModeEnabled/", {
-                        "boolean": "true",
-                    }, method="POST")
-                    logger.info("Configured ZAP form-based user authentication on context: %s", context_name)
-                    return True
-        except Exception as exc:
-            logger.warning("Failed configuring ZAP authentication: %s", exc)
+                self._req("forcedUser/action/setForcedUser/", {
+                    "contextId": cid_str,
+                    "userId": str(uid),
+                }, method="POST")
+                self._req("forcedUser/action/setForcedUserModeEnabled/", {
+                    "boolean": "true",
+                }, method="POST")
+                logger.info("Configured ZAP form-based user authentication on context: %s (id: %s)", context_name, cid_str)
+                return True
+            return False
         return False
 
     # -------------------------------------------------------------------------
@@ -321,8 +385,11 @@ class ZapClient:
                         urls.append(item)
 
             return urls, None
+        except ZapApiError as exc:
+            return [], f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
         except Exception as exc:
-            return [], f"Spider error: {exc}"
+            safe_exc = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            return [], f"Spider error: {safe_exc}"
 
     # -------------------------------------------------------------------------
     # 4. AJAX Spider (Headless Browser Crawling for SPAs)
@@ -376,8 +443,11 @@ class ZapClient:
                     elif isinstance(item, str) and item.startswith("http"):
                         urls.append(item)
             return urls, None
+        except ZapApiError as exc:
+            return [], f"ZAP AJAX Spider error on {exc.endpoint} [{exc.code}]: {exc.message}"
         except Exception as exc:
-            return [], f"AJAX Spider unavailable: {exc}"
+            safe_exc = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            return [], f"AJAX Spider unavailable: {safe_exc}"
 
     # -------------------------------------------------------------------------
     # 5. OpenAPI / Swagger Definition Import
@@ -411,7 +481,8 @@ class ZapClient:
                         discovered.append(u)
             return discovered, None
         except Exception as exc:
-            return [], f"OpenAPI import not available: {exc}"
+            safe_exc = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            return [], f"OpenAPI import not available: {safe_exc}"
 
     # -------------------------------------------------------------------------
     # 6. Passive Scan Queue Drain
@@ -520,8 +591,11 @@ class ZapClient:
                 time.sleep(2.0)
 
             return 100, None
+        except ZapApiError as exc:
+            return 0, f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
         except Exception as exc:
-            return 0, f"Active scan error: {exc}"
+            safe_exc = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            return 0, f"Active scan error: {safe_exc}"
 
     # -------------------------------------------------------------------------
     # 8. Alert Retrieval & Normalization
@@ -536,7 +610,7 @@ class ZapClient:
         try:
             # Query by baseurl
             for test_url in [base_url, base_url.rstrip("/"), f"{base_url.rstrip('/')}/"]:
-                resp = self._req("alert/view/alerts/", {"baseurl": test_url, "start": "0", "count": "200"})
+                resp = self._req("alert/view/alerts/", {"baseurl": test_url, "start": "0", "count": "200"}, timeout=45)
                 if resp.ok:
                     items = (resp.json() or {}).get("alerts") or []
                     if items:
@@ -545,7 +619,7 @@ class ZapClient:
 
             # Fallback: query general session alerts and filter by host
             if not raw_alerts:
-                sess_resp = self._req("alert/view/alerts/", {"start": "0", "count": "100"})
+                sess_resp = self._req("alert/view/alerts/", {"start": "0", "count": "100"}, timeout=45)
                 if sess_resp.ok:
                     parsed_target = urlparse(base_url)
                     target_host = (parsed_target.netloc or parsed_target.hostname or "").lower()
@@ -581,8 +655,11 @@ class ZapClient:
                 })
 
             return findings, None
+        except ZapApiError as exc:
+            return [], f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
         except Exception as exc:
-            return [], f"Failed fetching ZAP alerts: {exc}"
+            safe_exc = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+            return [], f"Failed fetching ZAP alerts: {safe_exc}"
 
     # -------------------------------------------------------------------------
     # 9. Scan Comparison & Diffing

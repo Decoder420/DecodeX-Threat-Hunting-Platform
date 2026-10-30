@@ -45,7 +45,8 @@ from th.web_scanner.engines import detect_engines, run_zap_active, run_zap_passi
 from th.web_scanner.orchestrator import _run_scan_job
 from th.web_scanner.surface import AttackSurfaceBuilder, build_tree_payload
 from th.web_scanner.validators import SSRFError, validate_scan_url
-from th.web_scanner.zap_client import ZapClient, ZAP_RISK_MAP, zap_client
+from th.enterprise_api import _serialize_scan
+from th.web_scanner.zap_client import ZapClient, ZapApiError, ZAP_RISK_MAP, zap_client
 
 
 class ZapIntegrationTests(unittest.TestCase):
@@ -490,6 +491,178 @@ paths:
         self.assertEqual(len(ep_yaml), 1)
         self.assertEqual(ep_yaml[0]["path"], "/auth/login")
         self.assertEqual(ep_yaml[0]["method"], "POST")
+
+    # -------------------------------------------------------------------------
+    # Requirement V: ZAP API Error Handling & Credential Redaction
+    # -------------------------------------------------------------------------
+    def test_zap_api_error_redaction_and_exception(self):
+        client = ZapClient("http://127.0.0.1:8080", "secret-zap-key")
+        mock_resp = MagicMock()
+        mock_resp.ok = False
+        mock_resp.status_code = 400
+        mock_resp.json.return_value = {
+            "code": "missing_parameter",
+            "message": "Missing Parameter: regex apikey=secret-zap-key password=supersecret token=abc123xyz",
+        }
+
+        with patch.object(client._session, "post", return_value=mock_resp):
+            with self.assertRaises(ZapApiError) as ctx:
+                client._req("context/action/includeInContext/", {"contextName": "ctx"}, method="POST")
+
+            err = ctx.exception
+            self.assertEqual(err.endpoint, "context/action/includeInContext/")
+            self.assertEqual(err.code, "MISSING_PARAMETER")
+            self.assertNotIn("secret-zap-key", str(err))
+            self.assertNotIn("supersecret", str(err))
+            self.assertNotIn("abc123xyz", str(err))
+            self.assertIn("[REDACTED]", str(err))
+
+    # -------------------------------------------------------------------------
+    # Requirement W: ZAP API Contract Verification (Parameter Names)
+    # -------------------------------------------------------------------------
+    @patch.object(ZapClient, "_req")
+    def test_zap_context_contract_parameters(self, mock_req):
+        client = ZapClient("http://127.0.0.1:8080", "key")
+        r_ok = MagicMock(ok=True)
+        r_ok.json.return_value = {"contextId": "1"}
+        mock_req.return_value = r_ok
+
+        client.create_target_context(
+            "test_ctx",
+            "https://target.local",
+            include_regex=r"^https://target\.local/.*$",
+            exclude_regexes=[r".*logout.*"],
+        )
+
+        calls = mock_req.call_args_list
+        # Call 0: newContext
+        self.assertEqual(calls[0][0][0], "context/action/newContext/")
+        self.assertEqual(calls[0][0][1], {"contextName": "test_ctx"})
+
+        # Call 1: includeInContext (must use 'regex', never 'regexUrl')
+        self.assertEqual(calls[1][0][0], "context/action/includeInContext/")
+        self.assertIn("regex", calls[1][0][1])
+        self.assertNotIn("regexUrl", calls[1][0][1])
+        self.assertEqual(calls[1][0][1]["regex"], r"^https://target\.local/.*$")
+
+        # Call 2: excludeFromContext (must use 'regex', never 'regexUrl')
+        self.assertEqual(calls[2][0][0], "context/action/excludeFromContext/")
+        self.assertIn("regex", calls[2][0][1])
+        self.assertNotIn("regexUrl", calls[2][0][1])
+        self.assertEqual(calls[2][0][1]["regex"], r".*logout.*")
+
+    @patch.object(ZapClient, "_req")
+    def test_zap_replacer_rule_contract_parameters(self, mock_req):
+        client = ZapClient("http://127.0.0.1:8080", "key")
+        mock_req.return_value = MagicMock(ok=True)
+
+        client.configure_custom_headers({"X-Test-Header": "SecretVal"})
+        self.assertEqual(mock_req.call_count, 2)
+        ep_del, params_del = mock_req.call_args_list[0][0][:2]
+        self.assertEqual(ep_del, "replacer/action/removeRule/")
+        self.assertEqual(params_del["description"], "DecodeX Header X-Test-Header")
+
+        ep, params = mock_req.call_args_list[1][0][:2]
+        self.assertEqual(ep, "replacer/action/addRule/")
+        self.assertIn("matchRegex", params)
+        self.assertEqual(params["matchRegex"], "false")
+        self.assertEqual(params["matchString"], "X-Test-Header")
+        self.assertEqual(params["replacement"], "SecretVal")
+
+    @patch.object(ZapClient, "_req")
+    def test_zap_auth_credentials_context_id_contract(self, mock_req):
+        client = ZapClient("http://127.0.0.1:8080", "key")
+        r_user = MagicMock(ok=True)
+        r_user.json.return_value = {"userId": "42"}
+        mock_req.return_value = r_user
+
+        auth_config = {
+            "login_url": "https://target.local/login",
+            "username": "admin",
+            "password": "secretpassword",
+        }
+        res = client.configure_auth_credentials(
+            "test_ctx",
+            auth_type="form",
+            auth_config=auth_config,
+            target_url="https://target.local",
+            context_id="99",
+        )
+        self.assertTrue(res)
+
+        # Check all calls made use contextId, not contextName
+        for call in mock_req.call_args_list:
+            ep, params = call[0][:2]
+            if "context" in ep or "users" in ep or "forcedUser" in ep:
+                if ep != "forcedUser/action/setForcedUserModeEnabled/":
+                    self.assertIn("contextId", params, f"Endpoint {ep} missing contextId")
+                    self.assertNotIn("contextName", params, f"Endpoint {ep} should not receive contextName")
+                    self.assertEqual(params["contextId"], "99")
+
+    # -------------------------------------------------------------------------
+    # Requirement X: Scan Status Ends PARTIAL When Engine Fails
+    # -------------------------------------------------------------------------
+    @patch("th.web_scanner.orchestrator.run_zap_passive")
+    @patch("th.web_scanner.orchestrator.discover_http")
+    def test_scan_status_is_partial_when_engine_fails(self, mock_discover, mock_zap):
+        db = dbmod.SessionLocal()
+        try:
+            target = WebTarget(
+                name="Fail Target",
+                url="https://fail-target.internal",
+                authorization_status="AUTHORIZED",
+            )
+            db.add(target)
+            db.commit()
+
+            scan = WebScan(
+                target_id=target.id,
+                scan_profile="STANDARD",
+                status="PENDING",
+                configuration_json="{}",
+            )
+            db.add(scan)
+            db.commit()
+
+            mock_discover.return_value = ([{
+                "title": "Built-in finding",
+                "severity": "INFO",
+                "confidence": 70,
+                "category": "info",
+                "evidence": "",
+                "recommendation": "",
+                "affected_url": target.url,
+                "source_engine": "builtin",
+                "fingerprint": "fp_test_builtin",
+                "url": target.url,
+            }], {"headers": {}, "body_sample": ""})
+
+            # Simulate ZAP passive scan failing with an API error
+            mock_zap.return_value = ([], [], "ZAP API error on context/action/includeInContext/ [MISSING_PARAMETER]: regex")
+
+            emitted_events = []
+            from th.web_scanner.orchestrator import set_broadcast
+            set_broadcast(lambda ev, pl: emitted_events.append((ev, pl)))
+
+            _run_scan_job(scan.id, create_alerts=False)
+
+            db.refresh(scan)
+            self.assertEqual(scan.status, "PARTIAL")
+            self.assertIn("MISSING_PARAMETER", scan.error_message)
+
+            # Check Socket.IO events were emitted
+            engine_err_events = [pl for ev, pl in emitted_events if ev == "web_scan_engine_error"]
+            self.assertTrue(len(engine_err_events) > 0)
+            self.assertEqual(engine_err_events[0]["engine"], "zap")
+
+            # Check _serialize_scan outputs engine error details and findings by engine
+            serialized = _serialize_scan(scan, include_detail=True)
+            self.assertEqual(serialized["status"], "PARTIAL")
+            self.assertTrue(len(serialized["engine_errors"]) > 0)
+            self.assertGreaterEqual(serialized["findings_by_engine"].get("builtin", 0), 1)
+        finally:
+            set_broadcast(None)
+            db.close()
 
 
 if __name__ == "__main__":

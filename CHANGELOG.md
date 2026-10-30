@@ -6,6 +6,18 @@ All notable changes, architectural enhancements, and security hardening mileston
 
 ## [Unreleased]
 
+### Scanner Integration & Engine Observability
+- **OWASP ZAP 2.17.0 API Contract Compliance**: Fixed parameter mismatches in `backend/src/th/web_scanner/zap_client.py` where ZAP calls were failing:
+  - Corrected `context/action/includeInContext/` and `context/action/excludeFromContext/` to send mandatory parameter `regex` instead of `regexUrl`.
+  - Added mandatory `matchRegex: "false"` parameter to `replacer/action/addRule/` for header authentication injection.
+  - Corrected context identifier parameter to `contextId` across `authentication/action/setAuthenticationMethod/`, `users/action/newUser/`, `users/action/setAuthenticationCredentials/`, `users/action/setUserEnabled/`, and `forcedUser/action/setForcedUser/`.
+- **Pinned Scanner Image**: Pinned the ZAP Docker image in `docker-compose.yaml` to `ghcr.io/zaproxy/zaproxy:2.17.0` to lock the exact tested daemon version.
+- **Fail-Loud Engine Diagnostics & Canonical Partial Status**:
+  - Eliminated silent scan success: scans where any engine fails now terminate with canonical status `PARTIAL` (if findings/URLs exist) or `FAILED` (if zero findings), never clean `COMPLETED`.
+  - Implemented `ZapApiError` in `zap_client.py` with automated credential/key redaction.
+  - Emitted Socket.IO scan events `web_scan_engine_error` and `webscan_engine_error` on engine failures.
+  - Surfaced structured `engine_errors` and `findings_by_engine` in the API serializer, frontend UI, and PDF assessment reports.
+
 ### Security
 - **Localhost Port Binding Default**: Published ports now bind to `127.0.0.1` by default via `${BIND_ADDRESS:-127.0.0.1}:80:80` on the Nginx reverse proxy.
 - **Internal Service Isolation**: Backend (5001) and ZAP (8080) are no longer published to the host machine. Both services now communicate strictly over the internal isolated Docker bridge network (`threat-net`).

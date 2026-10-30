@@ -221,15 +221,20 @@ class AttackSurfaceBuilder:
     ) -> WebScanNode:
         existing = self._by_key.get(key)
         if existing:
-            existing.last_seen = utcnow()
-            if http_status is not None:
+            changed = False
+            if http_status is not None and existing.http_status != http_status:
                 existing.http_status = http_status
-            if title:
+                changed = True
+            if title and existing.title != title:
                 existing.title = title
-            if technology:
+                changed = True
+            if technology and existing.technology != technology:
                 existing.technology = technology
-            self.db.commit()
-            self.emit("webscan_node_updated", {"scan_id": self.scan.id, "node": _serialize_node(existing)})
+                changed = True
+            if changed:
+                existing.last_seen = utcnow()
+                self.db.commit()
+                self.emit("webscan_node_updated", {"scan_id": self.scan.id, "node": _serialize_node(existing)})
             return existing
 
         node = WebScanNode(

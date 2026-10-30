@@ -274,7 +274,7 @@ def run_zap_passive(
     auth_config: dict | None = None,
 ) -> tuple[list[dict], list[str], str | None]:
     """ZAP spider + passive inspection via ZAP REST API with scope isolation. Non-destructive."""
-    from .zap_client import zap_client
+    from .zap_client import ZapApiError, zap_client
 
     if not ZAP_ENABLED:
         return [], [], "ZAP disabled by configuration"
@@ -283,48 +283,56 @@ def run_zap_passive(
     if not health.get("available"):
         return [], [], f"ZAP daemon unreachable: {health.get('error')}"
 
-    # 1. Create scoped context for target
-    parsed = urlparse(url)
-    context_name = f"ctx_{parsed.hostname or 'target'}_{int(time.time())}"
-    zap_client.create_target_context(context_name, url)
+    try:
+        # 1. Create scoped context for target
+        parsed = urlparse(url)
+        context_name = f"ctx_{parsed.hostname or 'target'}_{int(time.time())}"
+        cid = zap_client.create_target_context(context_name, url)
 
-    # Configure authentication if target has credentials
-    if auth_type and auth_type != "none" and auth_config:
-        zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url)
+        # Configure authentication if target has credentials
+        if auth_type and auth_type != "none" and auth_config:
+            zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url, context_id=cid)
 
-    # 2. Traditional Spider
-    spider_urls, err = zap_client.run_spider(
-        url,
-        context_name=context_name,
-        max_children=min(200, max(30, max_depth * 20)),
-        max_depth=max_depth,
-        timeout=timeout,
-        cancel_check=cancel_check,
-        progress_callback=progress_callback,
-        allow_private=allow_private,
-    )
-    if err and "cancelled" in err.lower():
-        return [], spider_urls, err
-
-    # 3. AJAX Spider (if supported)
-    if health.get("capabilities", {}).get("ajax_spider"):
-        ajax_urls, _ajax_err = zap_client.run_ajax_spider(
+        # 2. Traditional Spider
+        spider_urls, err = zap_client.run_spider(
             url,
             context_name=context_name,
-            timeout=min(timeout, 45),
+            max_children=min(200, max(30, max_depth * 20)),
+            max_depth=max_depth,
+            timeout=timeout,
             cancel_check=cancel_check,
+            progress_callback=progress_callback,
             allow_private=allow_private,
         )
-        for u in ajax_urls:
-            if u not in spider_urls:
-                spider_urls.append(u)
+        if err and "cancelled" in err.lower():
+            return [], spider_urls, err
+        if err:
+            return [], spider_urls, err
 
-    # 4. Drain passive scanner queue
-    zap_client.wait_for_passive_scan(timeout=15, cancel_check=cancel_check)
+        # 3. AJAX Spider (if supported)
+        if health.get("capabilities", {}).get("ajax_spider"):
+            ajax_urls, _ajax_err = zap_client.run_ajax_spider(
+                url,
+                context_name=context_name,
+                timeout=min(timeout, 45),
+                cancel_check=cancel_check,
+                allow_private=allow_private,
+            )
+            for u in ajax_urls:
+                if u not in spider_urls:
+                    spider_urls.append(u)
 
-    # 5. Fetch normalized findings
-    findings, alert_err = zap_client.fetch_normalized_alerts(url)
-    return findings, spider_urls, alert_err
+        # 4. Drain passive scanner queue
+        zap_client.wait_for_passive_scan(timeout=15, cancel_check=cancel_check)
+
+        # 5. Fetch normalized findings
+        findings, alert_err = zap_client.fetch_normalized_alerts(url)
+        return findings, spider_urls, alert_err
+    except ZapApiError as exc:
+        return [], [], f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
+    except Exception as exc:
+        safe_msg = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+        return [], [], f"ZAP passive crawl error: {safe_msg}"
 
 
 def run_zap_active(
@@ -342,7 +350,7 @@ def run_zap_active(
     attack_strength: str | None = None,
 ) -> tuple[list[dict], str | None]:
     """ZAP active scan against authorized target with rate limiting, policies, and scope guardrails."""
-    from .zap_client import zap_client
+    from .zap_client import ZapApiError, zap_client
 
     if not ZAP_ENABLED:
         return [], "ZAP disabled by configuration"
@@ -351,32 +359,40 @@ def run_zap_active(
     if not health.get("available"):
         return [], f"ZAP daemon unreachable: {health.get('error')}"
 
-    parsed = urlparse(url)
-    context_name = f"ascan_{parsed.hostname or 'target'}_{int(time.time())}"
-    context_id = zap_client.create_target_context(context_name, url)
+    try:
+        parsed = urlparse(url)
+        context_name = f"ascan_{parsed.hostname or 'target'}_{int(time.time())}"
+        context_id = zap_client.create_target_context(context_name, url)
 
-    # Configure authentication if target has credentials
-    if auth_type and auth_type != "none" and auth_config:
-        zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url)
+        # Configure authentication if target has credentials
+        if auth_type and auth_type != "none" and auth_config:
+            zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url, context_id=context_id)
 
-    # Run active scan with policy and threshold settings
-    _status, err = zap_client.run_active_scan(
-        url,
-        context_id=context_id,
-        delay_ms=delay_ms,
-        timeout=timeout,
-        cancel_check=cancel_check,
-        progress_callback=progress_callback,
-        allow_private=allow_private,
-        policy=policy,
-        alert_threshold=alert_threshold,
-        attack_strength=attack_strength,
-    )
-    if err and "cancelled" in err.lower():
-        return [], err
+        # Run active scan with policy and threshold settings
+        _status, err = zap_client.run_active_scan(
+            url,
+            context_id=context_id,
+            delay_ms=delay_ms,
+            timeout=timeout,
+            cancel_check=cancel_check,
+            progress_callback=progress_callback,
+            allow_private=allow_private,
+            policy=policy,
+            alert_threshold=alert_threshold,
+            attack_strength=attack_strength,
+        )
+        if err and "cancelled" in err.lower():
+            return [], err
+        if err:
+            return [], err
 
-    # Fetch alerts discovered during active scan
-    findings, alert_err = zap_client.fetch_normalized_alerts(url)
-    return findings, alert_err or err
+        # Fetch alerts discovered during active scan
+        findings, alert_err = zap_client.fetch_normalized_alerts(url)
+        return findings, alert_err
+    except ZapApiError as exc:
+        return [], f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
+    except Exception as exc:
+        safe_msg = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
+        return [], f"ZAP active scan error: {safe_msg}"
 
 

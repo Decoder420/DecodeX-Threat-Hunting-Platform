@@ -137,6 +137,30 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
         "safety_mode": getattr(s, "safety_mode", None) or "production",
         "interrupted": bool(getattr(s, "interrupted", False)),
     }
+    engine_errors = []
+    findings_by_engine = {}
+    engine_status = {}
+    try:
+        raw_cfg = getattr(s, "configuration_json", None) or "{}"
+        import json
+        cfg = json.loads(raw_cfg) if isinstance(raw_cfg, str) else {}
+        engine_errors = cfg.get("engine_errors") or []
+        findings_by_engine = cfg.get("findings_by_engine") or {}
+        engine_status = cfg.get("engine_status") or {}
+    except Exception:
+        pass
+
+    if not engine_errors and getattr(s, "error_message", None):
+        for msg in str(s.error_message).split("; "):
+            msg = msg.strip()
+            if not msg:
+                continue
+            eng = "zap" if "zap" in msg.lower() else ("nuclei" if "nuclei" in msg.lower() else ("nmap" if "nmap" in msg.lower() else "scanner"))
+            engine_errors.append({"engine": eng, "stage": "SCAN", "message": msg})
+
+    out["engine_errors"] = engine_errors
+    out["findings_by_engine"] = findings_by_engine
+    out["engine_status"] = engine_status
     if include_detail:
         import json
 

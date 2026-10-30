@@ -11,7 +11,8 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from ..audit import write_audit
-from ..db import Event, SessionLocal, WebFinding, WebScan, WebTarget, utcnow
+from .. import db as dbmod
+from ..db import Event, WebFinding, WebScan, WebTarget, utcnow
 from ..pipeline import persist_alerts
 from .api_discovery import discover_api_paths
 from .config import (
@@ -56,6 +57,17 @@ def _emit(event: str, payload: dict) -> None:
             logger.exception("Socket broadcast failed for %s", event)
 
 
+def _emit_engine_error(scan_id: int, engine: str, stage: str, message: str) -> None:
+    payload = {
+        "scan_id": scan_id,
+        "engine": engine,
+        "stage": stage,
+        "message": message,
+    }
+    _emit("web_scan_engine_error", payload)
+    _emit("webscan_engine_error", payload)
+
+
 def get_engine_status() -> dict:
     status = detect_engines()
     status["safety"] = {
@@ -75,7 +87,7 @@ def recover_stale_scans(db=None) -> int:
     """Transition any orphan scans left in RUNNING or PENDING state on startup to INTERRUPTED."""
     owns_db = db is None
     if db is None:
-        db = SessionLocal()
+        db = dbmod.SessionLocal()
     count = 0
     try:
         bind = db.get_bind()
@@ -105,7 +117,7 @@ def cancel_scan(scan_id: int) -> bool:
     flag = _cancel_flags.get(scan_id)
     if not flag:
         # Still mark DB if scan exists and is running
-        db = SessionLocal()
+        db = dbmod.SessionLocal()
         try:
             scan = db.get(WebScan, scan_id)
             if scan and scan.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
@@ -123,7 +135,7 @@ def cancel_scan(scan_id: int) -> bool:
         finally:
             db.close()
     flag.set()
-    db = SessionLocal()
+    db = dbmod.SessionLocal()
     try:
         scan = db.get(WebScan, scan_id)
         if scan and scan.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
@@ -140,7 +152,7 @@ def cancel_scan(scan_id: int) -> bool:
 
 def resume_scan(scan_id: int, *, user=None, created_by: str = "") -> WebScan:
     """Resume an interrupted/failed scan from last completed stage (best-effort)."""
-    db = SessionLocal()
+    db = dbmod.SessionLocal()
     try:
         scan = db.get(WebScan, scan_id)
         if not scan:
@@ -201,7 +213,7 @@ def start_scan_async(
     if profile == "LAB" and not WEBSCAN_LAB_MODE and not WEBSCAN_ALLOW_PRIVATE_TARGETS:
         raise PermissionError("LAB profile requires WEBSCAN_LAB_MODE=true (or private lab targets enabled).")
 
-    db = SessionLocal()
+    db = dbmod.SessionLocal()
     try:
         target = db.get(WebTarget, target_id)
         if not target:
@@ -342,7 +354,7 @@ def _log(db, scan, surface_log, event_type: str, message: str, **kwargs):
 
 
 def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = False) -> None:
-    db = SessionLocal()
+    db = dbmod.SessionLocal()
     started = time.time()
     try:
         scan = db.get(WebScan, scan_id)
@@ -508,24 +520,34 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
 
         _update(db, scan, stage="SCANNING", progress=55)
         warnings = []
+        engine_errors = []
+        engine_statuses = {"builtin": "completed"}
         # Production safety: skip ZAP active / nmap when production and not LAB profile
         allow_aggressive = (scan.safety_mode == "lab") or profile.get("lab") or not WEBSCAN_PRODUCTION_SAFETY_MODE
 
         if profile.get("nuclei"):
             n_findings, err = run_nuclei(scan_url)
             if err:
+                engine_errors.append({"engine": "nuclei", "stage": "NUCLEI", "message": err})
+                engine_statuses["nuclei"] = "failed"
                 warnings.append(err)
                 log("NUCLEI", f"Unavailable: {err}", severity="WARN")
+                _emit_engine_error(scan.id, "nuclei", "NUCLEI", err)
             else:
+                engine_statuses["nuclei"] = "completed"
                 raw_findings.extend(n_findings)
                 log("NUCLEI", f"Nuclei returned {len(n_findings)} finding(s)")
         if profile.get("nmap") and allow_aggressive:
             _update(db, scan, stage="PORT_SCAN", progress=60)
             nmap_findings, ports, err = run_nmap(hostname)
             if err:
+                engine_errors.append({"engine": "nmap", "stage": "PORT_SCAN", "message": err})
+                engine_statuses["nmap"] = "failed"
                 warnings.append(err)
                 log("NMAP", f"Unavailable: {err}", severity="WARN")
+                _emit_engine_error(scan.id, "nmap", "PORT_SCAN", err)
             else:
+                engine_statuses["nmap"] = "completed"
                 raw_findings.extend(nmap_findings)
                 scan.discovered_ports = len(ports)
                 for p in ports:
@@ -537,6 +559,7 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                         state=p.get("state") or "open",
                     )
         elif profile.get("nmap") and not allow_aggressive:
+            engine_statuses["nmap"] = "skipped"
             warnings.append("Nmap skipped (production safety mode)")
             log("NMAP", "Skipped under production safety mode", severity="WARN")
 
@@ -551,9 +574,13 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                 auth_config=target_auth_config,
             )
             if err:
+                engine_errors.append({"engine": "zap", "stage": "SPIDER", "message": err})
+                engine_statuses["zap"] = "failed"
                 warnings.append(err)
-                log("ZAP", f"Notice: {err}", severity="WARN")
+                log("ZAP", f"Error: {err}", severity="WARN")
+                _emit_engine_error(scan.id, "zap", "SPIDER", err)
             else:
+                engine_statuses["zap"] = "completed"
                 # Feed ZAP spidered URLs directly into the Website Map attack-surface tree!
                 added_nodes = 0
                 for u in z_urls:
@@ -594,9 +621,13 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                     attack_strength=scan_attack_strength,
                 )
                 if za_err:
+                    engine_errors.append({"engine": "zap", "stage": "ACTIVE_SCAN", "message": za_err})
+                    engine_statuses["zap_active"] = "failed"
                     warnings.append(za_err)
-                    log("ZAP", f"Active scan note: {za_err}", severity="WARN")
+                    log("ZAP", f"Active scan error: {za_err}", severity="WARN")
+                    _emit_engine_error(scan.id, "zap", "ACTIVE_SCAN", za_err)
                 else:
+                    engine_statuses["zap_active"] = "completed"
                     for f in za_findings:
                         aff_url = f.get("affected_url") or scan_url
                         try:
@@ -731,8 +762,38 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             counts["CRITICAL"] * 20 + counts["HIGH"] * 12 + counts["MEDIUM"] * 5 + counts["LOW"],
         )
         scan.duration = int(time.time() - started)
-        partial = bool(scan.error_message)
-        scan.status = "PARTIAL" if partial and scan.findings_count else "COMPLETED"
+
+        # Count findings by engine
+        findings_by_engine = {}
+        for item in normalized:
+            eng = (item.get("source_engine") or "builtin").lower()
+            findings_by_engine[eng] = findings_by_engine.get(eng, 0) + 1
+
+        # Store engine errors & execution summary in scan configuration_json
+        try:
+            cfg = json.loads(scan.configuration_json or "{}")
+            cfg["engine_errors"] = engine_errors
+            cfg["findings_by_engine"] = findings_by_engine
+            cfg["engine_status"] = engine_statuses
+            scan.configuration_json = json.dumps(cfg)
+        except Exception:
+            pass
+
+        if warnings:
+            scan.error_message = "; ".join(warnings)[:2000]
+
+        has_engine_failure = bool(engine_errors)
+        if has_engine_failure:
+            # An engine failed: scan must NEVER be a clean COMPLETED
+            if scan.findings_count > 0 or (scan.discovered_urls or 0) > 0:
+                scan.status = "PARTIAL"
+            else:
+                scan.status = "FAILED"
+        elif bool(warnings):
+            scan.status = "PARTIAL" if scan.findings_count > 0 else "COMPLETED"
+        else:
+            scan.status = "COMPLETED"
+
         scan.current_stage = scan.status
         scan.progress = 100
         scan.finished_at = utcnow()
@@ -742,6 +803,9 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
         done = {
             "scan_id": scan.id,
             "findings_count": scan.findings_count,
+            "findings_by_engine": findings_by_engine,
+            "engine_errors": engine_errors,
+            "engine_status": engine_statuses,
             "nodes_count": scan.nodes_count,
             "risk_score": scan.risk_score,
             "status": scan.status,

@@ -39,21 +39,23 @@ export function renderScanStatusBadge(scan) {
     );
   }
 
-  // Parse error_message to surface which engines were skipped/unavailable
+  // Parse error_message to surface which engines were skipped/unavailable/failed
   const notes = scan.error_message || "";
-  const skipped = [];
-  if (/nmap/i.test(notes)) skipped.push("Nmap");
-  if (/nuclei/i.test(notes)) skipped.push("Nuclei");
-  if (/zap/i.test(notes)) skipped.push("ZAP");
+  const affected = [];
+  if (/nmap/i.test(notes)) affected.push("Nmap");
+  if (/nuclei/i.test(notes)) affected.push("Nuclei");
+  if (/zap/i.test(notes)) affected.push("ZAP");
 
-  const label = skipped.length > 0
-    ? `PARTIAL (${skipped.join(", ")} skipped)`
-    : "PARTIAL (sub-engines skipped)";
+  const hasFailed = /failed|error/i.test(notes);
+  const actionWord = hasFailed ? "failed" : "skipped";
+  const label = affected.length > 0
+    ? `PARTIAL (${affected.join(", ")} ${actionWord})`
+    : "PARTIAL (sub-engines affected)";
 
   return (
     <Badge
       tone="warn"
-      title={notes ? `Partial scan: ${notes}` : "Scan completed with some engines skipped"}
+      title={notes ? `Partial scan: ${notes}` : "Scan completed with some engines affected"}
       style={{ cursor: notes ? "help" : "default" }}
     >
       {label}
@@ -127,7 +129,7 @@ export default function WebScansPage() {
               progress: payload.progress,
               current_stage: payload.stage,
               findings_count: payload.findings_count ?? prev.findings_count,
-              status: ["COMPLETED", "FAILED", "CANCELLED"].includes(payload.stage)
+              status: ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"].includes(payload.stage)
                 ? payload.stage
                 : "RUNNING",
             }
@@ -141,11 +143,26 @@ export default function WebScansPage() {
         load();
       });
     };
+    const onEngineError = (payload) => {
+      if (payload?.scan_id !== activeScan.id) return;
+      setActiveScan((prev) =>
+        prev
+          ? {
+              ...prev,
+              error_message: prev.error_message
+                ? `${prev.error_message}; ${payload.message}`
+                : payload.message,
+            }
+          : prev
+      );
+    };
     socket.on("web_scan_progress", onProgress);
     socket.on("web_scan_stage", onProgress);
     socket.on("web_scan_completed", onDone);
     socket.on("web_scan_failed", onDone);
     socket.on("web_scan_cancelled", onDone);
+    socket.on("web_scan_engine_error", onEngineError);
+    socket.on("webscan_engine_error", onEngineError);
 
     const poll = setInterval(async () => {
       try {
@@ -159,7 +176,7 @@ export default function WebScansPage() {
               }
             : prev
         );
-        if (["COMPLETED", "FAILED", "CANCELLED"].includes(res.data.status)) {
+        if (["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"].includes(res.data.status)) {
           const full = await webApi.getScan(activeScan.id);
           setActiveScan(full.data);
           load();
@@ -496,8 +513,18 @@ export default function WebScansPage() {
               style={{ width: `${activeScan.progress || 0}%` }}
             />
           </div>
+          {activeScan.findings_by_engine && Object.keys(activeScan.findings_by_engine).length > 0 ? (
+            <div className="websec__engine-breakdown" style={{ margin: "6px 0", fontSize: "0.85rem" }}>
+              <span className="muted">Findings by engine: </span>
+              {Object.entries(activeScan.findings_by_engine).map(([eng, count]) => (
+                <span key={eng} style={{ marginRight: 12 }}>
+                  <b>{eng}</b>: {count}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {activeScan.error_message ? (
-            <p className="muted">Notes: {activeScan.error_message}</p>
+            <p className="muted" style={{ color: "#d97706" }}>Notes: {activeScan.error_message}</p>
           ) : null}
           {activeScan.status === "RUNNING" || activeScan.status === "PENDING" ? (
             <Button variant="danger" size="sm" onClick={() => cancel(activeScan.id)}>
