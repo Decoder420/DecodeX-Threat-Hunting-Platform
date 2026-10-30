@@ -69,10 +69,21 @@ Frontend: **Web Security → Website Map** (`/webscan/map`).
 | Profile | Engines |
 |---------|---------|
 | QUICK | HTTP/TLS/headers/tech/passive |
-| STANDARD | QUICK + crawl + Nuclei (if installed) |
-| DEEP | STANDARD + Nmap + ZAP (if configured) |
+| STANDARD | QUICK + crawl + Nuclei (if installed) + ZAP (spider + passive scan only) |
+| DEEP | STANDARD + Nmap (lab-gated) + ZAP (spider + passive scan) |
+| LAB | Aggressive: ZAP Active Scan (injection fuzzing) + Nmap + Nuclei (requires `safety_mode=lab` or `WEBSCAN_LAB_MODE=true`) |
+| PASSIVE | Non-intrusive TLS/headers/sitemap only |
+| API | API & OpenAPI endpoint discovery + sitemap |
+| AUTHENTICATED | Authenticated crawl with configured auth profile |
 
 Missing binaries are skipped with warnings — scans continue.
+
+### Active Scanning vs. Passive Scanning
+
+By default (`WEBSCAN_PRODUCTION_SAFETY_MODE=true`), active injection scanning (SQL injection, XSS fuzzing, command injection) is strictly safety-gated to prevent accidental disruption of production applications.
+
+- **STANDARD and BASELINE profiles**: Run ZAP in **passive inspection + spider mode only**. These profiles inspect response headers, cookies, TLS certificates, and passive application attributes (e.g. CSP headers, anti-clickjacking, X-Content-Type-Options, timestamp disclosure). They do **not** launch active parameter injection attacks.
+- **LAB profile**: Runs ZAP's **Active Scanner** (`ascan`) to fuzz input parameters with injection payloads (SQL Injection, Cross Site Scripting, Path Traversal). Users can select the `LAB` profile in the web scan wizard when `WEBSCAN_LAB_MODE=true` or when targeting private lab networks (`WEBSCAN_ALLOW_PRIVATE_TARGETS=true`), or supply `safety_mode="lab"` via the API.
 
 ## Environment variables
 

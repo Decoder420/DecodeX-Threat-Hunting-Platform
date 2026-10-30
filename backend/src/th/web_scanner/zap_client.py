@@ -585,8 +585,15 @@ class ZapClient:
         }
         if context_id:
             params["contextId"] = context_id
-        if policy:
-            params["scanPolicyName"] = policy
+        policy_map = {
+            "DEFAULT": "Default Policy",
+            "THOROUGH": "Pen Test",
+            "API": "API",
+            "BASELINE": "Default Policy",
+        }
+        effective_policy = policy_map.get((policy or "").upper(), policy) if policy else None
+        if effective_policy:
+            params["scanPolicyName"] = effective_policy
 
         try:
             start_res = self._req("ascan/action/scan/", params, method="POST")

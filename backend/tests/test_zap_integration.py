@@ -675,6 +675,27 @@ paths:
             set_broadcast(None)
             db.close()
 
+    @patch.object(ZapClient, "_req")
+    def test_zap_active_scan_policy_mapping(self, mock_req):
+        client = ZapClient("http://127.0.0.1:8080", "key")
+        r_start = MagicMock(ok=True)
+        r_start.json.return_value = {"scan": "1"}
+        r_status = MagicMock(ok=True)
+        r_status.json.return_value = {"status": "100"}
+        mock_req.side_effect = [MagicMock(ok=True), r_start, r_status]
+
+        with patch("th.web_scanner.zap_client.validate_scan_url"):
+            client.run_active_scan("https://target.local", policy="DEFAULT")
+            scan_call = [c for c in mock_req.call_args_list if c[0][0] == "ascan/action/scan/"][0]
+            self.assertEqual(scan_call[0][1].get("scanPolicyName"), "Default Policy")
+
+        mock_req.reset_mock()
+        mock_req.side_effect = [MagicMock(ok=True), r_start, r_status]
+        with patch("th.web_scanner.zap_client.validate_scan_url"):
+            client.run_active_scan("https://target.local", policy="THOROUGH")
+            scan_call = [c for c in mock_req.call_args_list if c[0][0] == "ascan/action/scan/"][0]
+            self.assertEqual(scan_call[0][1].get("scanPolicyName"), "Pen Test")
+
 
 if __name__ == "__main__":
     unittest.main()
