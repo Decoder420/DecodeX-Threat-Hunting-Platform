@@ -235,6 +235,31 @@ class ZapClient:
                 if exc.code != "ALREADY_EXISTS":
                     raise
 
+    def remove_custom_headers(self, headers_dict: Dict[str, str]) -> None:
+        """Remove custom HTTP request headers via Replacer extension."""
+        if not headers_dict:
+            return
+        for header_name in headers_dict.keys():
+            desc = f"DecodeX Header {header_name}"
+            try:
+                self._req("replacer/action/removeRule/", {"description": desc}, method="POST")
+            except Exception as exc:
+                logger.debug("Failed removing Replacer rule %s: %s", desc, exc)
+
+    def clear_auth_credentials(
+        self,
+        auth_type: str,
+        auth_config: Dict[str, Any],
+    ) -> None:
+        """Clean up authentication rules in ZAP context or Replacer after scan completes."""
+        if not auth_type or auth_type == "none" or not auth_config:
+            return
+        auth_type_norm = (auth_type or "").lower().strip()
+        if auth_type_norm in {"token", "bearer", "custom_header"}:
+            header_name = auth_config.get("header_name") or "Authorization"
+            self.remove_custom_headers({header_name: ""})
+            logger.info("Cleaned up ZAP authenticated scanning header: %s", header_name)
+
     def configure_auth_credentials(
         self,
         context_name: str,

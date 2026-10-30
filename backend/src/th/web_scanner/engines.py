@@ -333,6 +333,12 @@ def run_zap_passive(
     except Exception as exc:
         safe_msg = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
         return [], [], f"ZAP passive crawl error: {safe_msg}"
+    finally:
+        if auth_type and auth_type != "none" and auth_config:
+            try:
+                zap_client.clear_auth_credentials(auth_type, auth_config)
+            except Exception:
+                pass
 
 
 def run_zap_active(
@@ -394,5 +400,11 @@ def run_zap_active(
     except Exception as exc:
         safe_msg = re.sub(r'apikey=[^&\s\)\'"]+', 'apikey=[REDACTED]', str(exc))
         return [], f"ZAP active scan error: {safe_msg}"
+    finally:
+        if auth_type and auth_type != "none" and auth_config:
+            try:
+                zap_client.clear_auth_credentials(auth_type, auth_config)
+            except Exception:
+                pass
 
 

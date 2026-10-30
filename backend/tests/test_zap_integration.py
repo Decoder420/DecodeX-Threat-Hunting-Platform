@@ -570,6 +570,17 @@ paths:
         self.assertEqual(params["replacement"], "SecretVal")
 
     @patch.object(ZapClient, "_req")
+    def test_zap_replacer_rule_cleanup(self, mock_req):
+        client = ZapClient("http://127.0.0.1:8080", "key")
+        mock_req.return_value = MagicMock(ok=True)
+
+        client.clear_auth_credentials("bearer", {"token": "secret123"})
+        mock_req.assert_called_once()
+        ep, params = mock_req.call_args[0][:2]
+        self.assertEqual(ep, "replacer/action/removeRule/")
+        self.assertEqual(params["description"], "DecodeX Header Authorization")
+
+    @patch.object(ZapClient, "_req")
     def test_zap_auth_credentials_context_id_contract(self, mock_req):
         client = ZapClient("http://127.0.0.1:8080", "key")
         r_user = MagicMock(ok=True)
