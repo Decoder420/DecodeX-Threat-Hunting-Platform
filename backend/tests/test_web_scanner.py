@@ -329,6 +329,94 @@ class WebScanApiTests(unittest.TestCase):
         self.assertEqual(report.status_code, 200)
         self.assertIn("executive_summary", report.get_json())
 
+    def test_consecutive_scans_preserve_findings_and_compare(self):
+        token = self._login()
+        with app.app_context():
+            db = get_db()
+            t = WebTarget(
+                name="target-compare",
+                url="https://example.com",
+                owner="admin",
+                authorization_status="AUTHORIZED",
+                created_by="admin",
+            )
+            db.add(t)
+            db.commit()
+
+            # First scan with 2 findings: A and B
+            s1 = WebScan(target_id=t.id, status="PENDING", created_by="admin", scan_profile="BASELINE")
+            db.add(s1)
+            db.commit()
+            sid1 = s1.id
+
+            from th.web_scanner.orchestrator import _run_scan_job
+            with patch("th.web_scanner.orchestrator.check_tls", return_value=([], {})):
+                with patch("th.web_scanner.orchestrator.extract_sitemap_urls", return_value={"count": 0, "urls": []}):
+                    with patch("th.web_scanner.orchestrator.run_zap_passive") as mock_zap:
+                        mock_zap.return_value = (
+                            [
+                                {"title": "Finding Shared B", "severity": "MEDIUM", "affected_url": "https://example.com/b", "source_engine": "zap"},
+                                {"title": "Finding Unique S1 A", "severity": "LOW", "affected_url": "https://example.com/a", "source_engine": "zap"},
+                            ],
+                            ["https://example.com/a", "https://example.com/b"],
+                            None,
+                        )
+                        with patch("th.web_scanner.orchestrator.crawl") as mock_crawl:
+                            mock_crawl.return_value = {"count": 2, "urls": []}
+                            with patch("th.web_scanner.orchestrator.discover_http") as mock_disc:
+                                mock_disc.return_value = ([], {"headers": {}, "body_sample": ""})
+                                with patch("th.web_scanner.orchestrator.check_common_files", return_value=[]):
+                                    _run_scan_job(sid1)
+
+            # Verify s1 has 2 findings in DB
+            db.expire_all()
+            s1_db = db.get(WebScan, sid1)
+            s1_findings = db.query(WebFinding).filter_by(scan_id=sid1).all()
+            self.assertEqual(len(s1_findings), 2, f"Scan 1 failed with error: {s1_db.error_message}, status: {s1_db.status}, stage: {s1_db.current_stage}")
+
+            # Second scan with 2 findings: B (shared) and C (new)
+            s2 = WebScan(target_id=t.id, status="PENDING", created_by="admin", scan_profile="STANDARD")
+            db.add(s2)
+            db.commit()
+            sid2 = s2.id
+
+            with patch("th.web_scanner.orchestrator.check_tls", return_value=([], {})):
+                with patch("th.web_scanner.orchestrator.extract_sitemap_urls", return_value={"count": 0, "urls": []}):
+                    with patch("th.web_scanner.orchestrator.run_zap_passive") as mock_zap2:
+                        mock_zap2.return_value = (
+                            [
+                                {"title": "Finding Shared B", "severity": "MEDIUM", "affected_url": "https://example.com/b", "source_engine": "zap"},
+                                {"title": "Finding Unique S2 C", "severity": "HIGH", "affected_url": "https://example.com/c", "source_engine": "zap"},
+                            ],
+                            ["https://example.com/b", "https://example.com/c"],
+                            None,
+                        )
+                        with patch("th.web_scanner.orchestrator.run_zap_active", return_value=([], None)):
+                            with patch("th.web_scanner.orchestrator.crawl") as mock_crawl2:
+                                mock_crawl2.return_value = {"count": 2, "urls": []}
+                                with patch("th.web_scanner.orchestrator.discover_http") as mock_disc2:
+                                    mock_disc2.return_value = ([], {"headers": {}, "body_sample": ""})
+                                    with patch("th.web_scanner.orchestrator.check_common_files", return_value=[]):
+                                        _run_scan_job(sid2)
+
+            # Crucial check: Scan 1 MUST still have its 2 findings (not stolen/reallocated to s2!)
+            s1_after = db.query(WebFinding).filter_by(scan_id=sid1).all()
+            self.assertEqual(len(s1_after), 2, "Scan 1 findings were overwritten or reallocated to Scan 2!")
+
+            # Scan 2 has its 2 findings
+            s2_findings = db.query(WebFinding).filter_by(scan_id=sid2).all()
+            self.assertEqual(len(s2_findings), 2)
+
+        # Call compare API
+        res = self.client.get(f"/api/web-scans/{sid2}/compare/{sid1}", headers=self._h(token))
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["persistent_count"], 1, "Finding Shared B must be persistent")
+        self.assertEqual(data["new_count"], 1, "Finding Unique S2 C must be new")
+        self.assertEqual(data["resolved_count"], 1, "Finding Unique S1 A must be resolved")
+        self.assertEqual(data["current_count"], 2)
+        self.assertEqual(data["previous_count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

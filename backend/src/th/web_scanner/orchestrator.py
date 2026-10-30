@@ -671,17 +671,12 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             affected = item.get("affected_url") or item.get("url") or scan_url
             node = surface.ensure_url_path(surface.ensure_root(scan_url, hostname=hostname), affected)
 
-            if fp in existing:
-                row = existing[fp]
-                row.last_seen = utcnow()
-                row.occurrence_count = int(getattr(row, "occurrence_count", 1) or 1) + 1
-                row.scan_id = scan.id
-                row.risk_score = score
-                row.severity = item["severity"]
-                row.node_id = node.id
-                counts[item["severity"]] = counts.get(item["severity"], 0) + 1
-                surface.attach_finding(node, severity=item["severity"], risk_score=score)
-                continue
+            prev = existing.get(fp)
+            first_seen_ts = prev.first_seen if (prev and prev.first_seen) else utcnow()
+            occ_count = (int(getattr(prev, "occurrence_count", 1) or 1) + 1) if prev else int(item.get("occurrence_count") or 1)
+            if prev:
+                prev.last_seen = utcnow()
+                prev.occurrence_count = occ_count
 
             row = WebFinding(
                 target_id=target.id,
@@ -710,13 +705,14 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                 request=item.get("request") or "",
                 response=item.get("response") or "",
                 status="OPEN",
-                first_seen=utcnow(),
+                first_seen=first_seen_ts,
                 last_seen=utcnow(),
-                occurrence_count=int(item.get("occurrence_count") or 1),
+                occurrence_count=occ_count,
                 risk_factors_json=json.dumps(factors),
             )
             db.add(row)
             db.flush()
+            existing[fp] = row
             counts[item["severity"]] = counts.get(item["severity"], 0) + 1
             will_alert = create_alerts and item["severity"] in {"HIGH", "CRITICAL"}
             surface.attach_finding(node, severity=item["severity"], risk_score=score, has_alert=will_alert)
