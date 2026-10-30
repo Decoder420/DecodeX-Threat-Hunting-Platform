@@ -647,14 +647,18 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             scan.error_message = "; ".join(warnings)[:2000]
 
         normalized = dedupe_findings(raw_findings, target_url=scan_url)
-        existing = {
-            f.fingerprint: f
-            for f in db.query(WebFinding).filter(
+        existing = {}
+        for f in (
+            db.query(WebFinding)
+            .filter(
                 WebFinding.target_id == target.id,
                 WebFinding.fingerprint != "",
-            ).all()
-            if getattr(f, "fingerprint", None)
-        }
+            )
+            .order_by(WebFinding.id.asc())
+            .all()
+        ):
+            if getattr(f, "fingerprint", None):
+                existing[f.fingerprint] = f
 
         counts = {"INFO": 0, "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
         alert_payloads = []
@@ -674,9 +678,19 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             prev = existing.get(fp)
             first_seen_ts = prev.first_seen if (prev and prev.first_seen) else utcnow()
             occ_count = (int(getattr(prev, "occurrence_count", 1) or 1) + 1) if prev else int(item.get("occurrence_count") or 1)
+            triage_status = "OPEN"
+            case_id = None
             if prev:
                 prev.last_seen = utcnow()
                 prev.occurrence_count = occ_count
+                # Carry-over triage decisions from prior scans:
+                # - FALSE_POSITIVE, ACCEPTED_RISK, SUPPRESSED, CONFIRMED carry forward.
+                # - If prior status was RESOLVED and the finding reappears in this scan,
+                #   it is a regression, so status becomes OPEN.
+                # - case_id carries forward if previously linked.
+                if prev.status in {"FALSE_POSITIVE", "ACCEPTED_RISK", "SUPPRESSED", "CONFIRMED"}:
+                    triage_status = prev.status
+                case_id = getattr(prev, "case_id", None)
 
             row = WebFinding(
                 target_id=target.id,
@@ -704,17 +718,22 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                 parameter=item.get("parameter") or "",
                 request=item.get("request") or "",
                 response=item.get("response") or "",
-                status="OPEN",
+                status=triage_status,
                 first_seen=first_seen_ts,
                 last_seen=utcnow(),
                 occurrence_count=occ_count,
+                case_id=case_id,
                 risk_factors_json=json.dumps(factors),
             )
             db.add(row)
             db.flush()
             existing[fp] = row
             counts[item["severity"]] = counts.get(item["severity"], 0) + 1
-            will_alert = create_alerts and item["severity"] in {"HIGH", "CRITICAL"}
+            will_alert = (
+                create_alerts
+                and item["severity"] in {"HIGH", "CRITICAL"}
+                and triage_status not in {"FALSE_POSITIVE", "SUPPRESSED", "ACCEPTED_RISK"}
+            )
             surface.attach_finding(node, severity=item["severity"], risk_score=score, has_alert=will_alert)
             finding_evt = {
                 "scan_id": scan.id,

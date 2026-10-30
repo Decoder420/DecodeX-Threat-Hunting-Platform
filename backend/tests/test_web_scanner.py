@@ -417,6 +417,98 @@ class WebScanApiTests(unittest.TestCase):
         self.assertEqual(data["current_count"], 2)
         self.assertEqual(data["previous_count"], 2)
 
+    def test_finding_triage_carries_over_across_scans(self):
+        token = self._login()
+        with app.app_context():
+            db = get_db()
+            t = WebTarget(
+                name="target-triage",
+                url="https://example.com",
+                owner="admin",
+                authorization_status="AUTHORIZED",
+                created_by="admin",
+            )
+            db.add(t)
+            db.commit()
+
+            # First scan with 2 findings
+            s1 = WebScan(target_id=t.id, status="PENDING", created_by="admin", scan_profile="BASELINE")
+            db.add(s1)
+            db.commit()
+            sid1 = s1.id
+
+            from th.web_scanner.orchestrator import _run_scan_job
+            with patch("th.web_scanner.orchestrator.check_tls", return_value=([], {})):
+                with patch("th.web_scanner.orchestrator.extract_sitemap_urls", return_value={"count": 0, "urls": []}):
+                    with patch("th.web_scanner.orchestrator.run_zap_passive") as mock_zap:
+                        mock_zap.return_value = (
+                            [
+                                {"title": "XSS Vulnerability", "severity": "HIGH", "affected_url": "https://example.com/search", "source_engine": "zap"},
+                                {"title": "Old Deprecated API", "severity": "MEDIUM", "affected_url": "https://example.com/api/old", "source_engine": "zap"},
+                            ],
+                            ["https://example.com/search", "https://example.com/api/old"],
+                            None,
+                        )
+                        with patch("th.web_scanner.orchestrator.crawl") as mock_crawl:
+                            mock_crawl.return_value = {"count": 2, "urls": []}
+                            with patch("th.web_scanner.orchestrator.discover_http") as mock_disc:
+                                mock_disc.return_value = ([], {"headers": {}, "body_sample": ""})
+                                with patch("th.web_scanner.orchestrator.check_common_files", return_value=[]):
+                                    _run_scan_job(sid1)
+
+            # Analyst triages the findings:
+            # 1. Marks XSS finding as FALSE_POSITIVE and links to case 101
+            # 2. Marks Old Deprecated API finding as RESOLVED
+            db.expire_all()
+            xss_s1 = db.query(WebFinding).filter_by(scan_id=sid1, title="XSS Vulnerability").one()
+            old_s1 = db.query(WebFinding).filter_by(scan_id=sid1, title="Old Deprecated API").one()
+
+            xss_s1.status = "FALSE_POSITIVE"
+            xss_s1.case_id = 101
+            old_s1.status = "RESOLVED"
+            db.commit()
+
+            # Second scan runs against the same target with the same findings
+            s2 = WebScan(target_id=t.id, status="PENDING", created_by="admin", scan_profile="BASELINE")
+            db.add(s2)
+            db.commit()
+            sid2 = s2.id
+
+            with patch("th.web_scanner.orchestrator.check_tls", return_value=([], {})):
+                with patch("th.web_scanner.orchestrator.extract_sitemap_urls", return_value={"count": 0, "urls": []}):
+                    with patch("th.web_scanner.orchestrator.run_zap_passive") as mock_zap2:
+                        mock_zap2.return_value = (
+                            [
+                                {"title": "XSS Vulnerability", "severity": "HIGH", "affected_url": "https://example.com/search", "source_engine": "zap"},
+                                {"title": "Old Deprecated API", "severity": "MEDIUM", "affected_url": "https://example.com/api/old", "source_engine": "zap"},
+                            ],
+                            ["https://example.com/search", "https://example.com/api/old"],
+                            None,
+                        )
+                        with patch("th.web_scanner.orchestrator.crawl") as mock_crawl2:
+                            mock_crawl2.return_value = {"count": 2, "urls": []}
+                            with patch("th.web_scanner.orchestrator.discover_http") as mock_disc2:
+                                mock_disc2.return_value = ([], {"headers": {}, "body_sample": ""})
+                                with patch("th.web_scanner.orchestrator.check_common_files", return_value=[]):
+                                    _run_scan_job(sid2)
+
+            db.expire_all()
+            xss_s2 = db.query(WebFinding).filter_by(scan_id=sid2, title="XSS Vulnerability").one()
+            old_s2 = db.query(WebFinding).filter_by(scan_id=sid2, title="Old Deprecated API").one()
+
+            # Assert FALSE_POSITIVE status carried forward
+            self.assertEqual(xss_s2.status, "FALSE_POSITIVE", "Analyst-set FALSE_POSITIVE status must carry over")
+            # Assert case_id carried forward
+            self.assertEqual(xss_s2.case_id, 101, "Associated case_id must carry over")
+            # Assert occurrence count incremented
+            self.assertEqual(xss_s2.occurrence_count, 2, "Occurrence count must increment")
+            # Assert first_seen preserved
+            self.assertEqual(xss_s2.first_seen, xss_s1.first_seen, "First seen timestamp must carry over")
+
+            # Assert RESOLVED finding reopens as OPEN (regression detection)
+            self.assertEqual(old_s2.status, "OPEN", "Re-occurring finding previously marked RESOLVED must reopen as OPEN")
+
+
 
 if __name__ == "__main__":
     unittest.main()
