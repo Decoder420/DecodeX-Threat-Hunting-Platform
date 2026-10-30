@@ -1,6 +1,6 @@
 services:
   zap:
-    image: ghcr.io/zaproxy/zaproxy:stable
+    image: ghcr.io/zaproxy/zaproxy:2.17.0
     container_name: zap_scanner
     # ports:
     #   - "127.0.0.1:8080:8080"  # Optional: uncomment for local ZAP API/UI debugging on host
@@ -58,6 +58,7 @@ services:
       dockerfile: Dockerfile
     container_name: threat_hunt_frontend
     environment:
+      - PORT=3000
       - REACT_APP_API_BASE_URL=http://localhost
       - WDS_SOCKET_PORT=0
     volumes:
@@ -86,7 +87,7 @@ services:
       - threat-net
     restart: always
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget -q -O- http://127.0.0.1/ > /dev/null 2>&1"]
+      test: ["CMD", "sh", "-c", "wget -q -O- http://127.0.0.1/health > /dev/null 2>&1"]
       interval: 5s
       timeout: 3s
       retries: 5

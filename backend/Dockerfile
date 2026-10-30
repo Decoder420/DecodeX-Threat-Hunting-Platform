@@ -40,4 +40,4 @@ RUN pip install --no-cache-dir -e .
 EXPOSE 5000
 
 # Start Gunicorn with an eventlet worker to support real-time Socket.IO# Start Gunicorn with an eventlet worker for high-concurrency and Socket.IO support
-CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5000", "src.th.webapp:app"]
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--timeout", "300", "--bind", "0.0.0.0:5000", "src.th.webapp:app"]
