@@ -285,6 +285,9 @@ def run_zap_passive(
         return [], [], f"ZAP daemon unreachable: {health.get('error')}"
 
     try:
+        # 0. Reset session for clean target state
+        zap_client.new_session()
+
         # 1. Create scoped context for target
         parsed = urlparse(url)
         context_name = f"ctx_{parsed.hostname or 'target'}_{int(time.time())}"
@@ -298,8 +301,8 @@ def run_zap_passive(
         spider_urls, err = zap_client.run_spider(
             url,
             context_name=context_name,
-            max_children=min(200, max(30, max_depth * 20)),
-            max_depth=max_depth,
+            max_children=min(50, max(20, max_depth * 10)),
+            max_depth=min(max_depth, 3),
             timeout=timeout,
             cancel_check=cancel_check,
             progress_callback=progress_callback,
@@ -345,6 +348,7 @@ def run_zap_passive(
 def run_zap_active(
     url: str,
     *,
+    seed_urls: list[str] | None = None,
     timeout: int = 120,
     delay_ms: int = 100,
     cancel_check: callable = None,
@@ -375,6 +379,11 @@ def run_zap_active(
         if auth_type and auth_type != "none" and auth_config:
             zap_client.configure_auth_credentials(context_name, auth_type, auth_config, url, context_id=context_id)
 
+        # Seed discovered endpoints (crawler, sitemap, API discovery) into ZAP's sites tree
+        if seed_urls:
+            seeded = zap_client.seed_target_urls(seed_urls, allow_private=allow_private)
+            logger.info("Seeded %d URL(s) into ZAP sites tree prior to active scan", seeded)
+
         # Run active scan with policy and threshold settings
         _status, err = zap_client.run_active_scan(
             url,
@@ -390,11 +399,11 @@ def run_zap_active(
         )
         if err and "cancelled" in err.lower():
             return [], err
-        if err:
-            return [], err
 
-        # Fetch alerts discovered during active scan
+        # Fetch alerts discovered during active scan (including partial scans on timeout)
         findings, alert_err = zap_client.fetch_normalized_alerts(url)
+        if err:
+            return findings, err
         return findings, alert_err
     except ZapApiError as exc:
         return [], f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"

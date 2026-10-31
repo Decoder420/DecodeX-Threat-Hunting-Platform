@@ -174,6 +174,15 @@ class ZapClient:
     # -------------------------------------------------------------------------
     # 2. Scoping, Context & Session Management
     # -------------------------------------------------------------------------
+    def new_session(self, name: str = "") -> bool:
+        """Create a clean ZAP session, clearing alerts and state from previous scans."""
+        sess_name = name or f"session_{int(time.time())}"
+        try:
+            res = self._req("core/action/newSession/", {"name": sess_name, "overwrite": "true"}, method="POST")
+            return res.ok
+        except Exception:
+            return False
+
     def create_target_context(
         self,
         context_name: str,
@@ -199,6 +208,8 @@ class ZapClient:
             r".*logout.*",
             r".*signout.*",
             r".*delete-account.*",
+            r".*socket\.io.*",
+            r".*sockjs.*",
         ]
         for ex in (exclude_regexes or defaults_exclude):
             self._req("context/action/excludeFromContext/", {"contextName": context_name, "regex": ex}, method="POST")
@@ -535,6 +546,44 @@ class ZapClient:
             time.sleep(1.0)
         return records_left
 
+    def seed_target_urls(
+        self,
+        urls: List[str],
+        *,
+        allow_private: bool = WEBSCAN_ALLOW_PRIVATE_TARGETS,
+        max_urls: int = 50,
+    ) -> int:
+        """Seed discovered URLs and API endpoints into ZAP's sites tree before active scanning.
+
+        Ensures ZAP's active scanner has full coverage of endpoints discovered by DecodeX's
+        crawler, sitemap parser, and API discovery modules (essential for Single Page Applications).
+        """
+        seeded = 0
+        seen = set()
+        for u in urls:
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            if seeded >= max_urls:
+                break
+            try:
+                validate_scan_url(u, allow_private=allow_private)
+                # Primary method: ZAP core accessUrl
+                res = self._req("core/action/accessUrl/", {"url": u, "followRedirects": "true"}, timeout=10)
+                if res.ok:
+                    seeded += 1
+                else:
+                    # Fallback method: issue GET request via ZAP proxy
+                    try:
+                        self._session.get(u, proxies={"http": self.base_url, "https": self.base_url}, timeout=5)
+                        seeded += 1
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.debug("Failed seeding URL %s into ZAP sites tree: %s", u, exc)
+                continue
+        return seeded
+
     # -------------------------------------------------------------------------
     # 7. Active Scanner with Rate Limiting & Scope Guardrails
     # -------------------------------------------------------------------------
@@ -556,7 +605,7 @@ class ZapClient:
 
         # Set delay between active scan requests
         try:
-            self._req("ascan/action/setOptionDelayInMs/", {"Integer": str(max(50, delay_ms))}, method="POST")
+            self._req("ascan/action/setOptionDelayInMs/", {"Integer": str(max(0, delay_ms))}, method="POST")
         except Exception:
             pass
 
@@ -577,6 +626,12 @@ class ZapClient:
                 }, method="POST")
             except Exception:
                 pass
+
+        # Disable DOM XSS (40026) in containerized daemon without browser binaries to avoid 130s timeout
+        try:
+            self._req("ascan/action/disableScanners/", {"ids": "40026"}, method="POST")
+        except Exception:
+            pass
 
         params: Dict[str, Any] = {
             "url": url,
@@ -604,25 +659,31 @@ class ZapClient:
                 return 0, "No active scan ID returned."
 
             deadline = time.time() + timeout
+            prog_int = 0
             while time.time() < deadline:
                 if cancel_check and cancel_check():
                     self._req("ascan/action/stop/", {"scanId": scan_id}, method="POST")
                     return 0, "Active scan cancelled."
 
-                st_res = self._req("ascan/view/status/", {"scanId": scan_id})
-                if st_res.ok:
-                    prog_str = (st_res.json() or {}).get("status", "0")
-                    try:
+                try:
+                    st_res = self._req("ascan/view/status/", {"scanId": scan_id}, timeout=15)
+                    if st_res.ok:
+                        prog_str = (st_res.json() or {}).get("status", "0")
                         prog_int = int(prog_str)
                         if progress_callback:
                             progress_callback(prog_int)
                         if prog_int >= 100:
-                            break
-                    except ValueError:
-                        pass
+                            return 100, None
+                except (ZapApiError, ValueError):
+                    pass
                 time.sleep(2.0)
 
-            return 100, None
+            # Deadline reached before 100% completion
+            try:
+                self._req("ascan/action/stop/", {"scanId": scan_id}, method="POST")
+            except Exception:
+                pass
+            return prog_int, f"ZAP active scan stopped at {prog_int}% by {timeout}s budget"
         except ZapApiError as exc:
             return 0, f"ZAP API error on {exc.endpoint} [{exc.code}]: {exc.message}"
         except Exception as exc:
@@ -642,7 +703,7 @@ class ZapClient:
         try:
             # Query by baseurl
             for test_url in [base_url, base_url.rstrip("/"), f"{base_url.rstrip('/')}/"]:
-                resp = self._req("alert/view/alerts/", {"baseurl": test_url, "start": "0", "count": "200"}, timeout=45)
+                resp = self._req("alert/view/alerts/", {"baseurl": test_url, "start": "0", "count": "5000"}, timeout=45)
                 if resp.ok:
                     items = (resp.json() or {}).get("alerts") or []
                     if items:
@@ -651,7 +712,7 @@ class ZapClient:
 
             # Fallback: query general session alerts and filter by host
             if not raw_alerts:
-                sess_resp = self._req("alert/view/alerts/", {"start": "0", "count": "100"}, timeout=45)
+                sess_resp = self._req("alert/view/alerts/", {"start": "0", "count": "5000"}, timeout=45)
                 if sess_resp.ok:
                     parsed_target = urlparse(base_url)
                     target_host = (parsed_target.netloc or parsed_target.hostname or "").lower()
