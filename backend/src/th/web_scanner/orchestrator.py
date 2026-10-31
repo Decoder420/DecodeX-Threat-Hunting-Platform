@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from ..audit import write_audit
 from .. import db as dbmod
-from ..db import Event, WebFinding, WebScan, WebTarget, utcnow
+from ..db import Event, WebFinding, WebScan, WebScanNode, WebTarget, utcnow
 from ..pipeline import persist_alerts
 from .api_discovery import discover_api_paths
 from .config import (
@@ -24,6 +24,8 @@ from .config import (
     WEBSCAN_MAX_CONCURRENT,
     WEBSCAN_PRODUCTION_SAFETY_MODE,
     WEBSCAN_REQUEST_BUDGET,
+    WEBSCAN_TIMEOUT,
+    WEBSCAN_ACTIVE_TIMEOUT,
 )
 from .crawler import crawl
 from .deduplicator import dedupe_findings
@@ -36,6 +38,29 @@ from .technology import fingerprint
 from .validators import SSRFError, validate_scan_url
 
 logger = logging.getLogger("th.web_scanner")
+
+STATIC_ASSET_EXTENSIONS = {
+    ".zip", ".tar", ".gz", ".tgz", ".iso", ".bin", ".exe", ".dmg", ".pkg", ".apk",
+    ".mp4", ".mp3", ".avi", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".woff", ".woff2",
+    ".css", ".js", ".map", ".ico"
+}
+
+
+def filter_active_scan_candidate_urls(urls: list[str]) -> list[str]:
+    """Filter out static assets, circular websocket transports, and prioritize parameterized endpoints for active scanning."""
+    candidates = [
+        u for u in urls
+        if u and u.startswith("http")
+        and not any(urlparse(u).path.lower().endswith(ext) for ext in STATIC_ASSET_EXTENSIONS)
+        and "/assets/" not in u
+        and "/socket.io" not in u
+        and "/sockjs" not in u
+    ]
+    # Prioritize parameterized endpoints (? in URL), then API/REST routes
+    return sorted(
+        list(set(candidates)),
+        key=lambda u: (0 if "?" in u else (1 if any(p in u for p in ("/api/", "/rest/")) else 2))
+    )[:50]
 
 _executor = ThreadPoolExecutor(max_workers=WEBSCAN_MAX_CONCURRENT, thread_name_prefix="webscan")
 _cancel_flags: dict[int, threading.Event] = {}
@@ -581,18 +606,17 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                 _emit_engine_error(scan.id, "zap", "SPIDER", err)
             else:
                 engine_statuses["zap"] = "completed"
-                # Feed ZAP spidered URLs directly into the Website Map attack-surface tree!
+                # Feed sample of ZAP spidered URLs directly into the Website Map attack-surface tree
                 added_nodes = 0
-                for u in z_urls:
+                for u in z_urls[:100]:
                     try:
                         surface.ensure_url_path(root, u)
                         added_nodes += 1
                     except Exception:
                         pass
-                if added_nodes:
-                    urls_discovered += added_nodes
-                    scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
-                    db.commit()
+                urls_discovered += len(z_urls)
+                scan.discovered_urls = max(int(scan.discovered_urls or 0), urls_discovered)
+                db.commit()
 
                 # Link ZAP findings to attack surface tree nodes
                 for f in z_findings:
@@ -609,10 +633,23 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             if allow_aggressive and not _cancelled(scan_id):
                 log("ZAP", f"Initiating rate-limited active scan on {scan_url}" + (f" (policy={scan_policy})" if scan_policy else ""), severity="INFO")
                 _update(db, scan, stage="ACTIVE_SCAN", progress=65)
+
+                # Feed functional URLs discovered by DecodeX into ZAP sites tree, prioritizing parameterized endpoints
+                raw_urls = [node.url for node in db.query(WebScanNode).filter_by(scan_id=scan.id).all() if node.url]
+                discovered_target_urls = filter_active_scan_candidate_urls(raw_urls)
+                log("ZAP", f"Feeding {len(discovered_target_urls)} discovered URL(s) into ZAP sites tree", severity="INFO")
+
+                def _active_prog(pct: int):
+                    # Progress from 65% to 80% during active scan
+                    _update(db, scan, stage="ACTIVE_SCAN", progress=65 + int(pct * 0.15))
+
                 za_findings, za_err = run_zap_active(
                     scan_url,
-                    timeout=min(timeout, 90),
+                    seed_urls=discovered_target_urls,
+                    timeout=min(WEBSCAN_TIMEOUT, WEBSCAN_ACTIVE_TIMEOUT),
+                    delay_ms=20 if profile.get("lab") else 100,
                     cancel_check=lambda: _cancelled(scan_id),
+                    progress_callback=_active_prog,
                     allow_private=allow_private,
                     auth_type=target_auth_type,
                     auth_config=target_auth_config,
@@ -624,19 +661,21 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
                     engine_errors.append({"engine": "zap", "stage": "ACTIVE_SCAN", "message": za_err})
                     engine_statuses["zap_active"] = "failed"
                     warnings.append(za_err)
-                    log("ZAP", f"Active scan error: {za_err}", severity="WARN")
+                    is_budget_stop = "budget" in za_err.lower()
+                    log("ZAP", f"Active scan {'note' if is_budget_stop else 'error'}: {za_err}", severity="INFO" if is_budget_stop else "WARN")
                     _emit_engine_error(scan.id, "zap", "ACTIVE_SCAN", za_err)
                 else:
                     engine_statuses["zap_active"] = "completed"
-                    for f in za_findings:
-                        aff_url = f.get("affected_url") or scan_url
-                        try:
-                            node = surface.ensure_url_path(root, aff_url)
-                            f["_node_id"] = node.id
-                        except Exception:
-                            pass
-                    raw_findings.extend(za_findings)
-                    log("ZAP", f"Active scan completed with {len(za_findings)} finding(s)", severity="INFO")
+
+                for f in za_findings:
+                    aff_url = f.get("affected_url") or scan_url
+                    try:
+                        node = surface.ensure_url_path(root, aff_url)
+                        f["_node_id"] = node.id
+                    except Exception:
+                        pass
+                raw_findings.extend(za_findings)
+                log("ZAP", f"Active scan finished with {len(za_findings)} finding(s)", severity="INFO")
 
         if _cancelled(scan_id):
             _update(db, scan, stage="CANCELLED", progress=scan.progress, finished_at=utcnow())
@@ -790,6 +829,7 @@ def _run_scan_job(scan_id: int, *, create_alerts: bool = True, resume: bool = Fa
             cfg["engine_errors"] = engine_errors
             cfg["findings_by_engine"] = findings_by_engine
             cfg["engine_status"] = engine_statuses
+            cfg["engine_notes"] = [e["message"] for e in engine_errors if "budget" in e.get("message", "").lower()]
             scan.configuration_json = json.dumps(cfg)
         except Exception:
             pass

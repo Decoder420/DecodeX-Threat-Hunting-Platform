@@ -140,6 +140,7 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
     engine_errors = []
     findings_by_engine = {}
     engine_status = {}
+    engine_notes = []
     try:
         raw_cfg = getattr(s, "configuration_json", None) or "{}"
         import json
@@ -147,6 +148,7 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
         engine_errors = cfg.get("engine_errors") or []
         findings_by_engine = cfg.get("findings_by_engine") or {}
         engine_status = cfg.get("engine_status") or {}
+        engine_notes = cfg.get("engine_notes") or []
     except Exception:
         pass
 
@@ -161,6 +163,7 @@ def _serialize_scan(s: WebScan, *, include_detail: bool = False) -> dict:
     out["engine_errors"] = engine_errors
     out["findings_by_engine"] = findings_by_engine
     out["engine_status"] = engine_status
+    out["engine_notes"] = engine_notes
     if include_detail:
         import json
 
