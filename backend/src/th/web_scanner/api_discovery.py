@@ -27,7 +27,10 @@ COMMON_API_PATHS = (
     "/openapi.json",
     "/openapi.yaml",
     "/api-docs",
+    "/api-docs/",
+    "/api-docs/swagger.json",
     "/swagger/",
+    "/swagger/v1/swagger.json",
     "/graphql",
     "/api/v1",
     "/api/v2",
@@ -61,6 +64,22 @@ def discover_api_paths(base_url: str, *, allow_private: bool = False) -> list[di
                     "content_type": ctype,
                     "method": "GET",
                 })
+                # If endpoint served an OpenAPI / Swagger specification, parse endpoints automatically
+                if ("swagger" in resp.text.lower() or "openapi" in resp.text.lower()) and "paths" in resp.text:
+                    try:
+                        parsed_eps, _meta, _err = parse_openapi_spec(resp.text, base_url=base_url)
+                        for ep in parsed_eps:
+                            ep_url = ep.get("url")
+                            if ep_url and not any(ep_url == x.get("url") for x in found):
+                                found.append({
+                                    "url": ep_url,
+                                    "status": 200,
+                                    "content_type": "application/json",
+                                    "method": ep.get("method") or "GET",
+                                    "parameters": ep.get("parameters") or [],
+                                })
+                    except Exception:
+                        pass
         except Exception:
             continue
     return found
@@ -139,6 +158,13 @@ def parse_openapi_spec(
                         "required": bool(p.get("required", False)),
                         "type": p.get("schema", {}).get("type", p.get("type", "string")),
                     })
+
+            query_parts = [
+                f"{p['name']}={p.get('example') or 'test'}"
+                for p in params if p.get("in") == "query" and p.get("name")
+            ]
+            if query_parts and "?" not in full_url:
+                full_url = f"{full_url}?{'&'.join(query_parts)}"
 
             endpoints.append({
                 "path": path_str,

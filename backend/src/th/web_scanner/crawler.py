@@ -11,11 +11,14 @@ import requests
 from .config import WEBSCAN_MAX_CRAWL_DEPTH, WEBSCAN_MAX_URLS, WEBSCAN_REQUEST_TIMEOUT
 from .validators import SSRFError, validate_scan_url
 
-HREF_RE = re.compile(r"""href=["']([^"'#]+)["']""", re.I)
+SRC_OR_HREF_RE = re.compile(r"""(?:href|src)=["']([^"'#\s]+)["']""", re.I)
+API_ROUTE_RE = re.compile(
+    r"""/(?:api|rest|v[0-9]+)/[a-zA-Z0-9_.~!$&*+,;=:@/?#%{}\$-]+"""
+)
 
 
 DANGEROUS_PATH_PATTERNS = re.compile(
-    r"/(?:log[-_]?out|sign[-_]?out|delete|destroy|terminate|cancel|remove|account[-_]?close)(?:/|\?|$)",
+    r"/(?:log[-_]?out|sign[-_]?out|delete|destroy|terminate|cancel|remove|account[-_]?close|socket\.io|sockjs)(?:/|\?|$)",
     re.I,
 )
 STATIC_BINARY_EXTENSIONS = {
@@ -46,7 +49,9 @@ def crawl(start_url: str, *, allow_private: bool = False, max_urls: int | None =
                 allow_redirects=False,
                 headers={"User-Agent": "ThreatHuntingPlatform-WebScanner/2.0 (+security-audit)"},
             )
-            body = resp.text[:200_000] if resp.headers.get("content-type", "").startswith("text") else ""
+            ctype = (resp.headers.get("content-type") or "").lower()
+            is_text = any(ctype.startswith(p) for p in ("text", "application/json", "application/javascript", "application/x-javascript"))
+            body = resp.text[:2_000_000] if is_text else ""
             urls.append({
                 "url": url,
                 "status": resp.status_code,
@@ -59,7 +64,15 @@ def crawl(start_url: str, *, allow_private: bool = False, max_urls: int | None =
 
         if depth >= max_depth:
             continue
-        for match in HREF_RE.findall(body or ""):
+
+        extracted_matches = list(SRC_OR_HREF_RE.findall(body or ""))
+        if "javascript" in ctype or "<script" in (body or ""):
+            for raw_route in API_ROUTE_RE.findall(body or ""):
+                # Replace JS/TS template literal parameters `${...}` with fuzzable test value
+                fuzzed = re.sub(r"\$\{[^}]+\}", "test", raw_route).rstrip("`'\"")
+                extracted_matches.append(fuzzed)
+
+        for match in extracted_matches:
             absolute = urljoin(url, match)
             try:
                 meta = validate_scan_url(absolute, allow_private=allow_private)

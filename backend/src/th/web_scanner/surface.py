@@ -110,14 +110,16 @@ class AttackSurfaceBuilder:
         segments = [s for s in path.split("/") if s]
         current = parent
         built = ""
+        port_suffix = f":{parent.port}" if parent.port and parent.port not in (80, 443) else ""
         if not segments:
-            key = f"path:{parent.hostname}/"
+            key = f"path:{parent.hostname}:{parent.port or 80}/"
+            leaf_query = f"?{parsed.query}" if parsed.query else ""
             return self._upsert(
                 key=key,
                 parent_id=parent.id,
                 node_type="path",
-                label="/",
-                url=url,
+                label="/" + leaf_query,
+                url=url or f"{parsed.scheme or parent.protocol or 'https'}://{parent.hostname}{port_suffix}/{leaf_query}",
                 hostname=parent.hostname,
                 ip=parent.ip,
                 protocol=parent.protocol or parsed.scheme or "",
@@ -127,14 +129,15 @@ class AttackSurfaceBuilder:
             )
         for i, part in enumerate(segments):
             built += "/" + part
-            key = f"path:{parent.hostname}{built}"
+            key = f"path:{parent.hostname}:{parent.port or 80}{built}"
             is_leaf = i == len(segments) - 1
+            leaf_query = f"?{parsed.query}" if (is_leaf and parsed.query) else ""
             current = self._upsert(
                 key=key,
                 parent_id=current.id,
                 node_type="endpoint" if is_leaf else "path",
-                label=built,
-                url=f"{parsed.scheme or parent.protocol or 'https'}://{parent.hostname}{built}",
+                label=built + leaf_query,
+                url=f"{parsed.scheme or parent.protocol or 'https'}://{parent.hostname}{port_suffix}{built}{leaf_query}",
                 hostname=parent.hostname,
                 ip=parent.ip,
                 protocol=parent.protocol or parsed.scheme or "",
