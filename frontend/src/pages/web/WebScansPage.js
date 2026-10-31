@@ -357,13 +357,13 @@ export default function WebScansPage() {
                   <span>
                     <strong>{p}</strong>
                     <span className="muted">
-                      {p === "QUICK" && " — discovery + sitemap + crawl + API paths"}
-                      {p === "STANDARD" && " — Quick + Nuclei"}
-                      {p === "DEEP" && " — Standard + Nmap + ZAP (lab/safety gated)"}
-                      {p === "PASSIVE" && " — TLS/headers/sitemap only (no crawl)"}
-                      {p === "API" && " — API/OpenAPI + sitemap oriented"}
-                      {p === "AUTHENTICATED" && " — crawl/API with auth profile intent"}
-                      {p === "LAB" && " — aggressive lab profile"}
+                      {p === "QUICK" && " — Fast discovery + sitemap + crawl + API paths"}
+                      {p === "STANDARD" && " — Quick + Nuclei safe templates + ZAP spider & passive scan"}
+                      {p === "DEEP" && " — Standard + Nmap port scan (lab/safety gated) + ZAP passive scan"}
+                      {p === "PASSIVE" && " — TLS, headers, DNS & sitemap inspection only (no crawl)"}
+                      {p === "API" && " — API & OpenAPI endpoint discovery + sitemap"}
+                      {p === "AUTHENTICATED" && " — Crawl & API scan with configured auth credentials/tokens"}
+                      {p === "LAB" && " — Aggressive active injection scan (ZAP active scan SQL injection fuzzing + Nmap + Nuclei; requires safety mode)"}
                     </span>
                   </span>
                 </label>

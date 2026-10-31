@@ -83,7 +83,30 @@ Missing binaries are skipped with warnings — scans continue.
 By default (`WEBSCAN_PRODUCTION_SAFETY_MODE=true`), active injection scanning (SQL injection, XSS fuzzing, command injection) is strictly safety-gated to prevent accidental disruption of production applications.
 
 - **STANDARD and BASELINE profiles**: Run ZAP in **passive inspection + spider mode only**. These profiles inspect response headers, cookies, TLS certificates, and passive application attributes (e.g. CSP headers, anti-clickjacking, X-Content-Type-Options, timestamp disclosure). They do **not** launch active parameter injection attacks.
-- **LAB profile**: Runs ZAP's **Active Scanner** (`ascan`) to fuzz input parameters with injection payloads (SQL Injection, Cross Site Scripting, Path Traversal). Users can select the `LAB` profile in the web scan wizard when `WEBSCAN_LAB_MODE=true` or when targeting private lab networks (`WEBSCAN_ALLOW_PRIVATE_TARGETS=true`), or supply `safety_mode="lab"` via the API.
+- **LAB profile**: Runs ZAP's **Active Scanner** (`ascan`) to fuzz input parameters with injection payloads (verified on OWASP Juice Shop to detect SQL Injection). Users can select the `LAB` profile in the web scan wizard when `WEBSCAN_LAB_MODE=true` or when targeting private lab networks (`WEBSCAN_ALLOW_PRIVATE_TARGETS=true`), or supply `safety_mode="lab"` via the API. Note: Browser-based client-side DOM XSS analysis (Rule 40026) is disabled in the headless daemon container; server-side injection rules (including SQL injection) execute fully.
+
+### Active Scan Budget & Timeout Limits
+
+Active scanning fuzzes multiple parameters with payload variations and can run indefinitely if unbounded. DecodeX enforces a dedicated active scan timeout budget:
+
+- **Default Timeout**: 180 seconds (`WEBSCAN_ACTIVE_TIMEOUT=180` in `.env`, capped by overall `WEBSCAN_TIMEOUT`).
+- **Graceful Budget Stop**: If the active scan reaches the timeout deadline before 100% completion, DecodeX stops the active scan cleanly (`ascan/action/stop`), retrieves and stores all alerts discovered up to the budget cutoff, marks the scan status as `PARTIAL`, and records an explicit engine note on the scan (e.g. `ZAP active scan stopped at 79% by 180s budget`).
+- **Raising the Budget**: To allow longer active scans on large attack surfaces, set `WEBSCAN_ACTIVE_TIMEOUT=600` (and `WEBSCAN_TIMEOUT=600`) in `.env` and restart the backend service.
+
+### Resources & Hardware Sizing
+
+Active vulnerability scanning with ZAP is CPU and memory intensive. Measured container resource utilization during active scans on OWASP Juice Shop:
+- **ZAP Memory Consumption**: ~600 MB to 900 MB RAM (JVM max heap 1 GB).
+- **CPU Utilization**: 1 to 2 CPU cores during multi-threaded parameter fuzzing.
+- **Minimum Docker Host Allocation**: **4 GB RAM** and **2 CPU cores** allocated to Docker Desktop/Engine to prevent out-of-memory container termination when running the full stack (backend, frontend, proxy, ZAP daemon, and target).
+
+### SPA & API Target Seeding for Active Scans
+
+Single Page Applications (SPAs built with React, Angular, Vue, or Next.js) often expose minimal parameterized links in raw static HTML. To ensure thorough active vulnerability testing:
+
+1. **Crawler & Script Inspection**: DecodeX extracts both page links and script references, parsing JavaScript bundles for relative API endpoints (`/api/...`, `/rest/...`). Generic fuzzable parameters (`test`) replace `${...}` template literals.
+2. **Schema & OpenAPI Discovery**: Automatically queries OpenAPI/Swagger schemas (`/api-docs/swagger.json`, `/openapi.json`) and extracts parameterized endpoints.
+3. **Sites Tree Pre-Seeding**: Before launching ZAP's active scan engine (`ascan`), DecodeX seeds discovered parameterized endpoints into ZAP's sites tree via ZAP's core access API. Static assets (`.jpg`, `.png`, `.css`, `.js`, `/socket.io/`) are excluded from active fuzzing candidates. This ensures ZAP active scan rules (such as SQL Injection) receive targeted endpoints to fuzz.
 
 ## Environment variables
 
