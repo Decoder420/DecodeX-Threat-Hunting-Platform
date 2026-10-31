@@ -696,6 +696,58 @@ paths:
             scan_call = [c for c in mock_req.call_args_list if c[0][0] == "ascan/action/scan/"][0]
             self.assertEqual(scan_call[0][1].get("scanPolicyName"), "Pen Test")
 
+    @patch.object(ZapClient, "_req")
+    def test_active_scan_deadline_stops_ascan_and_returns_alerts(self, mock_req):
+        """Test active scan timeout deadline stops ascan, returns partial alerts, and formats budget message."""
+        from th.web_scanner.engines import run_zap_active
+
+        client = ZapClient("http://127.0.0.1:8080", "key")
+
+        r_ok = MagicMock(ok=True)
+        r_start = MagicMock(ok=True)
+        r_start.json.return_value = {"scan": "42"}
+        r_status = MagicMock(ok=True)
+        r_status.json.return_value = {"status": "75"}
+        r_stop = MagicMock(ok=True)
+        r_stop.json.return_value = {"result": "OK"}
+
+        # Sequence of _req calls during run_active_scan:
+        # setOptionDelayInMs, disableScanners (40026), scan, view/status, action/stop
+        mock_req.side_effect = [r_ok, r_ok, r_start, r_status, r_stop]
+
+        with patch("th.web_scanner.zap_client.validate_scan_url"):
+            with patch("time.sleep"):
+                with patch("time.time", side_effect=[100.0, 100.0, 102.0, 105.0]):
+                    prog, err = client.run_active_scan("https://target.local", timeout=1)
+
+        self.assertEqual(prog, 75)
+        self.assertIn("ZAP active scan stopped at 75% by 1s budget", err)
+        stop_calls = [c for c in mock_req.call_args_list if c[0][0] == "ascan/action/stop/"]
+        self.assertEqual(len(stop_calls), 1, "ascan/action/stop must be called on budget expiration")
+        self.assertEqual(stop_calls[0][0][1].get("scanId"), "42")
+
+        # Test full engine run_zap_active returning both findings and the timeout budget error
+        mock_findings = [
+            {
+                "title": "SQL Injection",
+                "severity": "HIGH",
+                "cwe": "CWE-89",
+                "url": "https://target.local/rest/products/search?q=test'",
+                "parameter": "q",
+                "source_engine": "zap",
+            }
+        ]
+        with patch("th.web_scanner.zap_client.zap_client.health_check", return_value={"available": True}):
+            with patch("th.web_scanner.zap_client.zap_client.create_target_context", return_value="1"):
+                with patch("th.web_scanner.zap_client.zap_client.run_active_scan", return_value=(75, "ZAP active scan stopped at 75% by 180s budget")):
+                    with patch("th.web_scanner.zap_client.zap_client.fetch_normalized_alerts", return_value=(mock_findings, None)):
+                        findings, run_err = run_zap_active("https://target.local", timeout=180)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["title"], "SQL Injection")
+        self.assertEqual(findings[0]["parameter"], "q")
+        self.assertEqual(run_err, "ZAP active scan stopped at 75% by 180s budget")
+
 
 if __name__ == "__main__":
     unittest.main()

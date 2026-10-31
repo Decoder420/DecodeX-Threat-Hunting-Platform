@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = BACKEND_ROOT / "src"
@@ -507,6 +507,87 @@ class WebScanApiTests(unittest.TestCase):
 
             # Assert RESOLVED finding reopens as OPEN (regression detection)
             self.assertEqual(old_s2.status, "OPEN", "Re-occurring finding previously marked RESOLVED must reopen as OPEN")
+
+    @patch("requests.get")
+    def test_crawler_extracts_api_routes_with_template_literals(self, mock_get):
+        """Test crawler extracts ES6 template literal API routes and replaces ${...} with test parameter."""
+        from urllib.parse import urlparse
+        from th.web_scanner.crawler import crawl
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "application/javascript"}
+        mock_resp.text = """
+        const searchApi = `/rest/products/search?q=${searchQuery}&category=${cat}`;
+        const userApi = `/api/v1/users/${userId}/profile`;
+        const orderStatus = `/api/orders/${orderId}?token=${authToken}`;
+        const staticDoc = `/docs/readme.md`;
+        """
+        mock_get.return_value = mock_resp
+
+        def _mock_validate(u, **kw):
+            parsed = urlparse(u)
+            return {"url": u, "hostname": parsed.hostname or "example.com", "port": 80}
+
+        with patch("th.web_scanner.crawler.validate_scan_url", side_effect=_mock_validate):
+            result = crawl("http://example.com/main.js", allow_private=True, max_depth=2)
+        extracted_urls = [u["url"] for u in result.get("urls", [])]
+
+        # Verify ES6 template literals were extracted and replaced with 'test'
+        self.assertIn("http://example.com/rest/products/search?q=test&category=test", extracted_urls)
+        self.assertIn("http://example.com/api/v1/users/test/profile", extracted_urls)
+        self.assertIn("http://example.com/api/orders/test?token=test", extracted_urls)
+
+    def test_surface_ensure_url_path_keeps_port_and_query(self):
+        """Test surface.ensure_url_path preserves non-standard ports and query strings."""
+        from th.web_scanner.surface import AttackSurfaceBuilder
+
+        db = get_db()
+        scan = WebScan(id=888, target_id=1, scan_profile="QUICK")
+        db.add(scan)
+        db.commit()
+
+        builder = AttackSurfaceBuilder(db, scan)
+        root = builder.ensure_root("http://juice:3000")
+        self.assertEqual(root.port, 3000)
+
+        # Call ensure_url_path with path, non-standard port, and query parameter
+        node = builder.ensure_url_path(root, "http://juice:3000/rest/products/search?q=test")
+        self.assertEqual(node.port, 3000, "Port :3000 must be preserved in node")
+        self.assertEqual(node.url, "http://juice:3000/rest/products/search?q=test", "Full URL with port and query must be preserved")
+        self.assertEqual(node.label, "/rest/products/search?q=test", "Query parameter must be preserved in label")
+        self.assertEqual(node.node_type, "endpoint")
+        db.close()
+
+    def test_seeded_url_filter_excludes_static_assets(self):
+        """Test filter_active_scan_candidate_urls excludes static assets/sockets and prioritizes parameters."""
+        from th.web_scanner.orchestrator import filter_active_scan_candidate_urls
+
+        urls = [
+            "http://juice:3000/assets/public/images/products/apple.png",
+            "http://juice:3000/main.js",
+            "http://juice:3000/styles.css",
+            "http://juice:3000/favicon.ico",
+            "http://juice:3000/socket.io/?EIO=4&transport=polling",
+            "http://juice:3000/sockjs/info",
+            "http://juice:3000/api/Users",
+            "http://juice:3000/rest/products/search?q=test",
+            "http://juice:3000/rest/admin/whoami",
+        ]
+        candidates = filter_active_scan_candidate_urls(urls)
+
+        # Assert static files, assets folder, and websockets are excluded
+        self.assertNotIn("http://juice:3000/assets/public/images/products/apple.png", candidates)
+        self.assertNotIn("http://juice:3000/main.js", candidates)
+        self.assertNotIn("http://juice:3000/styles.css", candidates)
+        self.assertNotIn("http://juice:3000/favicon.ico", candidates)
+        self.assertNotIn("http://juice:3000/socket.io/?EIO=4&transport=polling", candidates)
+        self.assertNotIn("http://juice:3000/sockjs/info", candidates)
+
+        # Assert parameterized endpoint is prioritized at front of candidates list
+        self.assertEqual(candidates[0], "http://juice:3000/rest/products/search?q=test")
+        self.assertIn("http://juice:3000/api/Users", candidates)
+        self.assertIn("http://juice:3000/rest/admin/whoami", candidates)
 
 
 
