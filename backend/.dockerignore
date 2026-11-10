@@ -1,0 +1,14 @@
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+threat_hunting.db
+*.db
+*.db-shm
+*.db-wal
+data/logs/*
+!data/logs/.gitkeep
+
